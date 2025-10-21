@@ -1,6 +1,7 @@
-1.1.1
+1.2
 
 Version History:
+- 1.2: Official release with GPL v3 license
 - 1.1.1: Improved diff styling (removed strikethrough, added +/− indicators, better readability)
 - 1.1.0: Added version comparison feature, fixed checkbox overlap, added cache-busting
 - 1.0.0: Initial release with shadow admin detection
