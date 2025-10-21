@@ -27,7 +27,7 @@ jobs:
       
     - name: Create deployment directory
       run: mkdir -p deploy
-        
+    
     - name: Copy web files
       run: |
         cp index.html deploy/
@@ -46,21 +46,22 @@ jobs:
         # Show file count
         echo "Total files to deploy:"
         find deploy -type f | wc -l
-      - name: Setup Pages
-        uses: actions/configure-pages@v4
+    
+    - name: Setup Pages
+      uses: actions/configure-pages@v4
 
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: './deploy'
+    - name: Upload artifact
+      uses: actions/upload-pages-artifact@v3
+      with:
+        path: './deploy'
 
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+    - name: Deploy to GitHub Pages
+      id: deployment
+      uses: actions/deploy-pages@v4
 
-      - name: Display deployment URL
-        run: |
-          echo "🎉 Deployment successful!"
-          echo "📍 URL: ${{ steps.deployment.outputs.page_url }}"
+    - name: Display deployment URL
+      run: |
+        echo "🎉 Deployment successful!"
+        echo "📍 URL: ${{ steps.deployment.outputs.page_url }}"
 
 
