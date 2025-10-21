@@ -1,0 +1,117 @@
+name: Verify Build
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check required files exist
+        run: |
+          echo "Checking for required application files..."
+          
+          required_files=(
+            "index.html"
+            "styles.css"
+            "aws-handler.js"
+            "policy-visualizer.js"
+            "app.js"
+            "README.md"
+          )
+          
+          missing_files=()
+          
+          for file in "${required_files[@]}"; do
+            if [ -f "$file" ]; then
+              echo "✓ $file exists"
+            else
+              echo "✗ $file is missing"
+              missing_files+=("$file")
+            fi
+          done
+          
+          if [ ${#missing_files[@]} -ne 0 ]; then
+            echo ""
+            echo "❌ Missing required files:"
+            printf '%s\n' "${missing_files[@]}"
+            exit 1
+          fi
+          
+          echo ""
+          echo "✅ All required files present!"
+
+      - name: Check HTML syntax
+        run: |
+          echo "Checking HTML syntax..."
+          if grep -q "<!DOCTYPE html>" index.html; then
+            echo "✓ HTML DOCTYPE found"
+          else
+            echo "✗ HTML DOCTYPE missing"
+            exit 1
+          fi
+          
+          if grep -q "</html>" index.html; then
+            echo "✓ HTML closing tag found"
+          else
+            echo "✗ HTML closing tag missing"
+            exit 1
+          fi
+          
+          echo "✅ HTML syntax check passed!"
+
+      - name: Check for ES6 modules
+        run: |
+          echo "Checking JavaScript module system..."
+          if grep -q 'type="module"' index.html; then
+            echo "✓ ES6 modules detected in index.html"
+          else
+            echo "⚠ No ES6 modules found"
+          fi
+          
+          if grep -q 'import.*from' aws-handler.js; then
+            echo "✓ ES6 import found in aws-handler.js"
+          fi
+          
+          if grep -q 'export' policy-visualizer.js; then
+            echo "✓ ES6 export found in policy-visualizer.js"
+          fi
+          
+          echo "✅ Module system check complete!"
+
+      - name: Check cache-busting versions
+        run: |
+          echo "Checking cache-busting version parameters..."
+          
+          if grep -q '\.css?v=' index.html; then
+            echo "✓ CSS has version parameter"
+          else
+            echo "⚠ CSS missing version parameter"
+          fi
+          
+          if grep -q '\.js?v=' index.html; then
+            echo "✓ JS files have version parameters"
+          else
+            echo "⚠ JS files missing version parameters"
+          fi
+          
+          echo "✅ Cache-busting check complete!"
+
+      - name: Summary
+        run: |
+          echo ""
+          echo "╔══════════════════════════════════════════════════════╗"
+          echo "║                                                      ║"
+          echo "║           ✅ Build Verification Passed               ║"
+          echo "║                                                      ║"
+          echo "╚══════════════════════════════════════════════════════╝"
+          echo ""
+          echo "All checks completed successfully!"
+          echo "Ready for deployment to GitHub Pages."
+

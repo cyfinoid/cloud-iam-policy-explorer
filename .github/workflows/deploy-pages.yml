@@ -1,0 +1,79 @@
+name: Deploy to GitHub Pages
+
+on:
+  release:
+    types: [created, published]
+  # Allow manual trigger
+  workflow_dispatch:
+
+# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow only one concurrent deployment
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Prepare deployment files
+        run: |
+          # Create deployment directory
+          mkdir -p deploy
+          
+          # Copy necessary application files
+          echo "Copying application files..."
+          cp index.html deploy/
+          cp styles.css deploy/
+          cp aws-handler.js deploy/
+          cp policy-visualizer.js deploy/
+          cp app.js deploy/
+          
+          # Copy essential documentation
+          echo "Copying documentation..."
+          cp README.md deploy/
+          cp -r docs deploy/ 2>/dev/null || echo "No docs directory"
+          
+          # Create .nojekyll to prevent GitHub Pages from processing files
+          touch deploy/.nojekyll
+          
+          # List deployed files for verification
+          echo "Files prepared for deployment:"
+          ls -lah deploy/
+          
+          # Show file count
+          echo "Total files to deploy:"
+          find deploy -type f | wc -l
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: './deploy'
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Display deployment URL
+        run: |
+          echo "🎉 Deployment successful!"
+          echo "📍 URL: ${{ steps.deployment.outputs.page_url }}"
+
