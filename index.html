@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AWS Policy Explorer | Cyfinoid</title>
+    
+    <!-- Sen Font -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Sen:wght@400;700;800&display=swap" rel="stylesheet">
+    
+    <!-- Styles -->
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <h1 class="title">AWS Policy Explorer</h1>
+            <p class="subtitle">Analyze and manage IAM policies</p>
+        </header>
+
+        <!-- Credential Form Section -->
+        <section id="credential-section" class="section">
+            <h2 class="heading">Connect to AWS</h2>
+            <form id="credential-form" class="credential-form">
+                <div class="form-group">
+                    <label for="accessKeyId" class="form-label">AWS Access Key ID</label>
+                    <input 
+                        type="text" 
+                        id="accessKeyId" 
+                        class="form-input" 
+                        placeholder="AKIAIOSFODNN7EXAMPLE"
+                        required
+                        autocomplete="off"
+                    >
+                </div>
+
+                <div class="form-group">
+                    <label for="secretAccessKey" class="form-label">AWS Secret Access Key</label>
+                    <input 
+                        type="password" 
+                        id="secretAccessKey" 
+                        class="form-input" 
+                        placeholder="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+                        required
+                        autocomplete="off"
+                    >
+                </div>
+
+                <div class="form-group">
+                    <label for="sessionToken" class="form-label">Session Token (Optional)</label>
+                    <input 
+                        type="password" 
+                        id="sessionToken" 
+                        class="form-input" 
+                        placeholder="Optional for temporary credentials"
+                        autocomplete="off"
+                    >
+                </div>
+
+                <div class="form-group">
+                    <label for="region" class="form-label">AWS Region</label>
+                    <select id="region" class="form-select">
+                        <option value="us-east-1">US East (N. Virginia)</option>
+                        <option value="us-east-2">US East (Ohio)</option>
+                        <option value="us-west-1">US West (N. California)</option>
+                        <option value="us-west-2">US West (Oregon)</option>
+                        <option value="eu-west-1">EU (Ireland)</option>
+                        <option value="eu-central-1">EU (Frankfurt)</option>
+                        <option value="ap-southeast-1">Asia Pacific (Singapore)</option>
+                        <option value="ap-northeast-1">Asia Pacific (Tokyo)</option>
+                    </select>
+                </div>
+
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary" id="connect-btn">
+                        Connect
+                    </button>
+                </div>
+            </form>
+
+            <div id="error-message" class="message message-error" style="display: none;"></div>
+            <div id="success-message" class="message message-success" style="display: none;"></div>
+        </section>
+
+        <!-- Policy Explorer Section (Hidden initially) -->
+        <section id="explorer-section" class="section" style="display: none;">
+            <div class="explorer-header">
+                <h2 class="heading">Policy Explorer</h2>
+                <button id="disconnect-btn" class="btn btn-secondary">Disconnect</button>
+            </div>
+
+            <!-- Loading Indicator -->
+            <div id="loading-indicator" class="loading" style="display: none;">
+                <div class="spinner"></div>
+                <p>Loading policies...</p>
+            </div>
+
+            <!-- Policy Statistics -->
+            <div id="policy-stats" class="stats-container" style="display: none;">
+                <div class="stat-card">
+                    <div class="stat-value" id="total-policies">0</div>
+                    <div class="stat-label">Total Policies</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="aws-managed-count">0</div>
+                    <div class="stat-label">AWS Managed</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="customer-managed-count">0</div>
+                    <div class="stat-label">Customer Managed</div>
+                </div>
+            </div>
+
+            <!-- Search and Filter -->
+            <div id="search-section" class="search-container" style="display: none;">
+                <input 
+                    type="text" 
+                    id="policy-search" 
+                    class="search-input" 
+                    placeholder="Search policies..."
+                >
+                <select id="policy-filter" class="filter-select">
+                    <option value="all">All Policies</option>
+                    <option value="aws-managed">AWS Managed</option>
+                    <option value="customer-managed">Customer Managed</option>
+                </select>
+            </div>
+
+            <!-- Policy List -->
+            <div id="policy-list" class="policy-list"></div>
+
+            <!-- Policy Detail View -->
+            <div id="policy-detail" class="policy-detail" style="display: none;">
+                <div class="detail-header">
+                    <button id="back-to-list" class="btn btn-secondary">← Back to List</button>
+                    <h3 class="subheading" id="detail-policy-name"></h3>
+                </div>
+
+                <div class="detail-metadata">
+                    <div class="metadata-item">
+                        <span class="metadata-label">ARN:</span>
+                        <span class="metadata-value" id="detail-policy-arn"></span>
+                    </div>
+                    <div class="metadata-item">
+                        <span class="metadata-label">Type:</span>
+                        <span class="metadata-value" id="detail-policy-type"></span>
+                    </div>
+                    <div class="metadata-item">
+                        <span class="metadata-label">Created:</span>
+                        <span class="metadata-value" id="detail-policy-created"></span>
+                    </div>
+                    <div class="metadata-item">
+                        <span class="metadata-label">Updated:</span>
+                        <span class="metadata-value" id="detail-policy-updated"></span>
+                    </div>
+                </div>
+
+                <!-- Version Selector -->
+                <div class="version-section">
+                    <h4 class="section-header">Policy Versions</h4>
+                    <div id="version-list" class="version-list"></div>
+                </div>
+
+                <!-- View Toggle -->
+                <div class="view-toggle">
+                    <button class="toggle-btn" data-view="security">Security Analysis</button>
+                    <button class="toggle-btn active" data-view="visual">Visual</button>
+                    <button class="toggle-btn" data-view="json">JSON</button>
+                </div>
+
+                <!-- Policy Content Views -->
+                <div id="policy-content-security" class="policy-content"></div>
+                <div id="policy-content-visual" class="policy-content" style="display: none;"></div>
+                <div id="policy-content-json" class="policy-content" style="display: none;">
+                    <pre><code id="json-display"></code></pre>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <!-- AWS SDK v3 -->
+    <script type="importmap">
+    {
+        "imports": {
+            "@aws-sdk/client-iam": "https://cdn.jsdelivr.net/npm/@aws-sdk/client-iam@3.658.1/+esm"
+        }
+    }
+    </script>
+
+    <!-- Application Scripts -->
+    <script type="module" src="aws-handler.js"></script>
+    <script type="module" src="policy-visualizer.js"></script>
+    <script type="module" src="app.js"></script>
+</body>
+</html>
+

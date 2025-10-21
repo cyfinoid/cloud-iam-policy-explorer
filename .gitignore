@@ -1,0 +1,49 @@
+# OS Files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# IDE
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# Credentials (extra safety)
+credentials.txt
+*.pem
+*.key
+config.json
+secrets/
+.env
+.env.backup
+
+# Python virtual environment (uv)
+.venv/
+venv/
+.python-version
+
+# Node modules (if using any build tools in future)
+node_modules/
+package-lock.json
+yarn.lock
+
+sample/
+
+docs
+
+logs-accounts.txt
+
