@@ -36,6 +36,14 @@ secrets/
 venv/
 .python-version
 
+# Build artifacts (if someone tries to bundle)
+node_modules/
+package-lock.json
+*.bundle.js
+*-standalone.html
+dist/
+build/
+
 # Node modules (if using any build tools in future)
 node_modules/
 package-lock.json

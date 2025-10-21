@@ -64,17 +64,6 @@ class App {
         toggleBtns.forEach(btn => {
             btn.addEventListener('click', (e) => this.handleViewToggle(e.target.dataset.view));
         });
-
-        // Version comparison buttons
-        const compareBtn = document.getElementById('compare-versions-btn');
-        if (compareBtn) {
-            compareBtn.addEventListener('click', () => this.handleCompareVersions());
-        }
-
-        const closeComparisonBtn = document.getElementById('close-comparison-btn');
-        if (closeComparisonBtn) {
-            closeComparisonBtn.addEventListener('click', () => this.closeVersionComparison());
-        }
     }
 
     /**
@@ -314,9 +303,6 @@ class App {
                 (versionId) => this.handleSetDefaultVersion(policyArn, versionId)
             );
 
-            // Setup version checkbox listeners
-            this.setupVersionCheckboxListeners();
-
             // Run security analysis
             this.currentSecurityAnalysis = analyzePolicyForShadowAdmin(result.data.currentVersion.Document);
 
@@ -478,99 +464,6 @@ class App {
         
         if (errorElement) errorElement.style.display = 'none';
         if (successElement) successElement.style.display = 'none';
-    }
-
-    /**
-     * Setup event listeners for version checkboxes
-     */
-    setupVersionCheckboxListeners() {
-        const checkboxes = document.querySelectorAll('.version-checkbox');
-        checkboxes.forEach(checkbox => {
-            checkbox.addEventListener('change', () => this.updateCompareButton());
-        });
-    }
-
-    /**
-     * Update compare button visibility based on selected versions
-     */
-    updateCompareButton() {
-        const compareBtn = document.getElementById('compare-versions-btn');
-        const checkboxes = document.querySelectorAll('.version-checkbox:checked');
-        
-        if (checkboxes.length === 2) {
-            compareBtn.style.display = 'inline-block';
-        } else {
-            compareBtn.style.display = 'none';
-        }
-    }
-
-    /**
-     * Handle compare versions button click
-     */
-    async handleCompareVersions() {
-        const checkboxes = document.querySelectorAll('.version-checkbox:checked');
-        
-        if (checkboxes.length !== 2) {
-            this.showError('Please select exactly 2 versions to compare');
-            return;
-        }
-
-        const versionIds = Array.from(checkboxes).map(cb => cb.dataset.versionId);
-        
-        // Fetch both versions
-        const loadingIndicator = document.getElementById('loading-indicator');
-        loadingIndicator.style.display = 'block';
-
-        try {
-            const version1Result = await awsHandler.getPolicyVersion(this.currentPolicyArn, versionIds[0]);
-            const version2Result = await awsHandler.getPolicyVersion(this.currentPolicyArn, versionIds[1]);
-
-            if (!version1Result.success || !version2Result.success) {
-                this.showError('Failed to load policy versions for comparison');
-                loadingIndicator.style.display = 'none';
-                return;
-            }
-
-            // Sort versions by date (older first, newer second)
-            const versions = [version1Result.data, version2Result.data];
-            versions.sort((a, b) => new Date(a.CreateDate) - new Date(b.CreateDate));
-
-            // Show comparison (older on left, newer on right)
-            const comparisonSection = document.getElementById('version-comparison-section');
-            const comparisonContent = document.getElementById('version-comparison-content');
-            
-            PolicyVisualizer.renderVersionComparison(
-                versions[0], // Older version (left)
-                versions[1], // Newer version (right)
-                comparisonContent
-            );
-
-            comparisonSection.style.display = 'block';
-            
-            // Scroll to comparison
-            comparisonSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
-
-            loadingIndicator.style.display = 'none';
-
-        } catch (error) {
-            this.showError(`Error comparing versions: ${error.message}`);
-            loadingIndicator.style.display = 'none';
-        }
-    }
-
-    /**
-     * Close version comparison view
-     */
-    closeVersionComparison() {
-        const comparisonSection = document.getElementById('version-comparison-section');
-        comparisonSection.style.display = 'none';
-
-        // Uncheck all version checkboxes
-        const checkboxes = document.querySelectorAll('.version-checkbox');
-        checkboxes.forEach(cb => cb.checked = false);
-
-        // Hide compare button
-        this.updateCompareButton();
     }
 }
 

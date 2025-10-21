@@ -11,7 +11,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Sen:wght@400;700;800&display=swap" rel="stylesheet">
     
     <!-- Styles -->
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="styles.css?v=1.1.1">
 </head>
 <body>
     <div class="container">
@@ -160,8 +160,22 @@
 
                 <!-- Version Selector -->
                 <div class="version-section">
-                    <h4 class="section-header">Policy Versions</h4>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--spacing-sm);">
+                        <h4 class="section-header" style="margin: 0;">Policy Versions</h4>
+                        <button id="compare-versions-btn" class="compare-btn" style="display: none;">
+                            Compare Selected Versions
+                        </button>
+                    </div>
                     <div id="version-list" class="version-list"></div>
+                </div>
+
+                <!-- Version Comparison View (hidden by default) -->
+                <div id="version-comparison-section" class="version-comparison-section" style="display: none;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--spacing-md);">
+                        <h4 class="section-header" style="margin: 0;">Version Comparison</h4>
+                        <button id="close-comparison-btn" class="btn-secondary">Close Comparison</button>
+                    </div>
+                    <div id="version-comparison-content"></div>
                 </div>
 
                 <!-- View Toggle -->
@@ -191,9 +205,9 @@
     </script>
 
     <!-- Application Scripts -->
-    <script type="module" src="aws-handler.js"></script>
-    <script type="module" src="policy-visualizer.js"></script>
-    <script type="module" src="app.js"></script>
+    <script type="module" src="aws-handler.js?v=1.1.1"></script>
+    <script type="module" src="policy-visualizer.js?v=1.1.1"></script>
+    <script type="module" src="app.js?v=1.1.1"></script>
 </body>
 </html>
 

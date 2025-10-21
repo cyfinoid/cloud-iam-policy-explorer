@@ -88,29 +88,46 @@ See [TESTING-GUIDE.md](TESTING-GUIDE.md) for detailed testing instructions and s
 
 ### Installation
 
-1. Clone or download this repository
-2. Serve the files using a local web server
+**Important:** This application uses ES6 modules and must be served over HTTP/HTTPS (not file://). You need to run a local web server.
 
-#### Option 1: Python HTTP Server
+#### Quick Start - Use the Provided Script
+
 ```bash
-# Python 3
-python3 -m http.server 8000
+./start-server.sh
+```
 
-# Python 2
+Then open your browser to: **http://localhost:8000**
+
+#### Alternative Server Options
+
+**Python 3:**
+```bash
+python3 -m http.server 8000
+```
+
+**Python 2:**
+```bash
 python -m SimpleHTTPServer 8000
 ```
 
-#### Option 2: Node.js HTTP Server
-```bash
-npx http-server -p 8000
-```
-
-#### Option 3: PHP Built-in Server
+**PHP:**
 ```bash
 php -S localhost:8000
 ```
 
-3. Open your browser and navigate to `http://localhost:8000`
+**Node.js:**
+```bash
+npx http-server -p 8000
+```
+
+**Demo Script (Interactive):**
+```bash
+./demo.sh
+```
+
+Then open your browser to: **http://localhost:8000**
+
+> ⚠️ **Why a server?** This app uses modern ES6 modules which browsers block on `file://` protocol for security. See [docs/CORS-ISSUE-EXPLAINED.md](docs/CORS-ISSUE-EXPLAINED.md) for details.
 
 ### Usage
 
@@ -321,5 +338,4 @@ This is an internal Cyfinoid tool. For questions or improvements, please contact
 
 **Cyfinoid** - AWS Policy Explorer v1.0
 
-*Powered by research from Rhino Security Labs' Pacu framework*
 
