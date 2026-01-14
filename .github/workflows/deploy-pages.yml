@@ -34,6 +34,7 @@ jobs:
         cp styles.css deploy/
         cp aws-handler.js deploy/
         cp policy-visualizer.js deploy/
+        cp policy-expansion.js deploy/
         cp app.js deploy/
         echo "Copying documentation..."
         cp README.md deploy/
