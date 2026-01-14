@@ -9,13 +9,25 @@ import {
     GetPolicyCommand,
     GetPolicyVersionCommand,
     ListPolicyVersionsCommand,
-    SetDefaultPolicyVersionCommand
+    SetDefaultPolicyVersionCommand,
+    ListAttachedUserPoliciesCommand,
+    ListUserPoliciesCommand,
+    GetUserPolicyCommand,
+    GetUserCommand
 } from '@aws-sdk/client-iam';
+
+import {
+    STSClient,
+    GetCallerIdentityCommand
+} from '@aws-sdk/client-sts';
 
 class AWSHandler {
     constructor() {
         this.iamClient = null;
+        this.stsClient = null;
         this.credentials = null;
+        this.currentIdentity = null;
+        this.hasFullListPermissions = null; // null = unknown, true/false after check
     }
 
     /**
@@ -28,24 +40,51 @@ class AWSHandler {
             ...(sessionToken && { sessionToken })
         };
 
-        this.iamClient = new IAMClient({
+        const clientConfig = {
             region: region || 'us-east-1',
             credentials: this.credentials
-        });
+        };
+
+        this.iamClient = new IAMClient(clientConfig);
+        this.stsClient = new STSClient(clientConfig);
+        this.hasFullListPermissions = null;
 
         return true;
     }
 
     /**
-     * Test connection by making a simple API call
+     * Test connection using STS GetCallerIdentity (almost always allowed)
+     * Returns identity info which is useful for fallback operations
      */
     async testConnection() {
         try {
-            const command = new ListPoliciesCommand({
-                MaxItems: 1
-            });
-            await this.iamClient.send(command);
-            return { success: true };
+            const command = new GetCallerIdentityCommand({});
+            const response = await this.stsClient.send(command);
+            
+            this.currentIdentity = {
+                arn: response.Arn,
+                accountId: response.Account,
+                userId: response.UserId
+            };
+
+            // Extract username from ARN if it's an IAM user
+            // ARN format: arn:aws:iam::123456789012:user/username
+            const arnParts = response.Arn.split(':');
+            if (arnParts.length >= 6 && arnParts[5].startsWith('user/')) {
+                this.currentIdentity.userName = arnParts[5].substring(5);
+                this.currentIdentity.isIamUser = true;
+            } else if (arnParts[5].startsWith('assumed-role/')) {
+                // For assumed roles: assumed-role/role-name/session-name
+                const roleParts = arnParts[5].split('/');
+                this.currentIdentity.roleName = roleParts[1];
+                this.currentIdentity.sessionName = roleParts[2];
+                this.currentIdentity.isAssumedRole = true;
+            }
+
+            return { 
+                success: true,
+                identity: this.currentIdentity
+            };
         } catch (error) {
             return { 
                 success: false, 
@@ -55,10 +94,48 @@ class AWSHandler {
     }
 
     /**
+     * Get current identity info
+     */
+    getCurrentIdentity() {
+        return this.currentIdentity;
+    }
+
+    /**
      * List all managed policies (AWS and Customer managed)
      * Handles pagination automatically
+     * Falls back to user-attached policies if ListPolicies is not permitted
      */
     async listAllPolicies() {
+        // First try the full list approach
+        const fullListResult = await this.tryListAllPolicies();
+        
+        if (fullListResult.success) {
+            this.hasFullListPermissions = true;
+            return fullListResult;
+        }
+
+        // If ListPolicies failed due to permissions, try fallback
+        if (fullListResult.error && fullListResult.error.includes('not authorized')) {
+            console.log('ListPolicies not authorized, falling back to user-attached policies');
+            this.hasFullListPermissions = false;
+            return await this.listUserAttachedPolicies();
+        }
+
+        // Other error
+        return fullListResult;
+    }
+
+    /**
+     * Check if we have full list permissions
+     */
+    hasFullPermissions() {
+        return this.hasFullListPermissions === true;
+    }
+
+    /**
+     * Try to list all policies (requires iam:ListPolicies)
+     */
+    async tryListAllPolicies() {
         try {
             const allPolicies = {
                 awsManaged: [],
@@ -103,7 +180,8 @@ class AWSHandler {
 
             return {
                 success: true,
-                data: allPolicies
+                data: allPolicies,
+                mode: 'full'
             };
         } catch (error) {
             console.error('Error listing policies:', error);
@@ -112,6 +190,140 @@ class AWSHandler {
                 error: error.message || 'Failed to list policies'
             };
         }
+    }
+
+    /**
+     * Fallback: List policies attached to the current user
+     * Requires: iam:ListAttachedUserPolicies (for managed policies)
+     *           iam:ListUserPolicies (for inline policies)
+     */
+    async listUserAttachedPolicies() {
+        if (!this.currentIdentity || !this.currentIdentity.userName) {
+            return {
+                success: false,
+                error: 'Cannot list user policies: not logged in as an IAM user'
+            };
+        }
+
+        const userName = this.currentIdentity.userName;
+        const result = {
+            awsManaged: [],
+            customerManaged: [],
+            inlinePolicies: [],
+            attachedPolicies: []
+        };
+
+        // Try to get attached managed policies
+        try {
+            let marker = null;
+            do {
+                const command = new ListAttachedUserPoliciesCommand({
+                    UserName: userName,
+                    MaxItems: 100,
+                    ...(marker && { Marker: marker })
+                });
+                
+                const response = await this.iamClient.send(command);
+                
+                if (response.AttachedPolicies) {
+                    for (const policy of response.AttachedPolicies) {
+                        // Fetch full policy details
+                        const detailResult = await this.getPolicyDetails(policy.PolicyArn);
+                        if (detailResult.success) {
+                            const fullPolicy = {
+                                ...detailResult.data,
+                                isAttachedToUser: true
+                            };
+                            
+                            // Categorize as AWS or Customer managed
+                            if (policy.PolicyArn.includes(':aws:policy/')) {
+                                result.awsManaged.push(fullPolicy);
+                            } else {
+                                result.customerManaged.push(fullPolicy);
+                            }
+                            result.attachedPolicies.push(fullPolicy);
+                        } else {
+                            // If we can't get details, use basic info
+                            const basicPolicy = {
+                                PolicyName: policy.PolicyName,
+                                Arn: policy.PolicyArn,
+                                isAttachedToUser: true
+                            };
+                            if (policy.PolicyArn.includes(':aws:policy/')) {
+                                result.awsManaged.push(basicPolicy);
+                            } else {
+                                result.customerManaged.push(basicPolicy);
+                            }
+                            result.attachedPolicies.push(basicPolicy);
+                        }
+                    }
+                }
+                
+                marker = response.IsTruncated ? response.Marker : null;
+            } while (marker);
+        } catch (error) {
+            console.warn('Could not list attached user policies:', error.message);
+        }
+
+        // Try to get inline policies
+        try {
+            const command = new ListUserPoliciesCommand({
+                UserName: userName,
+                MaxItems: 100
+            });
+            
+            const response = await this.iamClient.send(command);
+            
+            if (response.PolicyNames) {
+                for (const policyName of response.PolicyNames) {
+                    // Try to get the inline policy document
+                    try {
+                        const getPolicyCmd = new GetUserPolicyCommand({
+                            UserName: userName,
+                            PolicyName: policyName
+                        });
+                        const policyResponse = await this.iamClient.send(getPolicyCmd);
+                        
+                        let policyDocument = policyResponse.PolicyDocument;
+                        if (typeof policyDocument === 'string') {
+                            policyDocument = JSON.parse(decodeURIComponent(policyDocument));
+                        }
+                        
+                        result.inlinePolicies.push({
+                            PolicyName: policyName,
+                            PolicyDocument: policyDocument,
+                            isInline: true,
+                            userName: userName
+                        });
+                    } catch (err) {
+                        // Add without document if we can't fetch it
+                        result.inlinePolicies.push({
+                            PolicyName: policyName,
+                            isInline: true,
+                            userName: userName
+                        });
+                    }
+                }
+            }
+        } catch (error) {
+            console.warn('Could not list inline user policies:', error.message);
+        }
+
+        const totalPolicies = result.awsManaged.length + result.customerManaged.length + result.inlinePolicies.length;
+        
+        if (totalPolicies === 0) {
+            return {
+                success: false,
+                error: 'No policies found or insufficient permissions to list user policies'
+            };
+        }
+
+        return {
+            success: true,
+            data: result,
+            mode: 'limited',
+            message: `Found ${totalPolicies} policies attached to user ${userName}`
+        };
     }
 
     /**
@@ -270,7 +482,10 @@ class AWSHandler {
      */
     disconnect() {
         this.iamClient = null;
+        this.stsClient = null;
         this.credentials = null;
+        this.currentIdentity = null;
+        this.hasFullListPermissions = null;
     }
 
     /**
@@ -278,6 +493,32 @@ class AWSHandler {
      */
     isInitialized() {
         return this.iamClient !== null;
+    }
+
+    /**
+     * Analyze an inline policy document (for user inline policies)
+     */
+    getInlinePolicyInfo(inlinePolicy) {
+        return {
+            success: true,
+            data: {
+                policy: {
+                    PolicyName: inlinePolicy.PolicyName,
+                    Arn: `inline:${inlinePolicy.userName}/${inlinePolicy.PolicyName}`,
+                    isInline: true
+                },
+                currentVersion: {
+                    Document: inlinePolicy.PolicyDocument,
+                    VersionId: 'inline',
+                    IsDefaultVersion: true
+                },
+                allVersions: [{
+                    VersionId: 'inline',
+                    IsDefaultVersion: true,
+                    CreateDate: new Date().toISOString()
+                }]
+            }
+        };
     }
 }
 

@@ -27,18 +27,43 @@ export class PolicyVisualizer {
     static createPolicyListItem(policy) {
         const item = document.createElement('div');
         item.className = 'policy-item';
-        item.dataset.policyArn = policy.Arn;
+        
+        // Handle inline policies differently
+        if (policy.isInline) {
+            item.dataset.policyArn = `inline:${policy.userName}/${policy.PolicyName}`;
+        } else {
+            item.dataset.policyArn = policy.Arn;
+        }
 
-        const isAwsManaged = policy.Arn.includes(':aws:policy/');
-        const badgeClass = isAwsManaged ? 'badge-aws' : 'badge-customer';
-        const badgeText = isAwsManaged ? 'AWS Managed' : 'Customer Managed';
+        let badgeClass, badgeText;
+        if (policy.isInline) {
+            badgeClass = 'badge-inline';
+            badgeText = 'Inline Policy';
+        } else if (policy.Arn && policy.Arn.includes(':aws:policy/')) {
+            badgeClass = 'badge-aws';
+            badgeText = 'AWS Managed';
+        } else {
+            badgeClass = 'badge-customer';
+            badgeText = 'Customer Managed';
+        }
+
+        // Add attached badge if policy is attached to user
+        const attachedBadge = policy.isAttachedToUser ? 
+            '<div class="policy-badge badge-attached">Attached</div>' : '';
+
+        const arnDisplay = policy.isInline ? 
+            `Inline on user: ${policy.userName}` : 
+            this.escapeHtml(policy.Arn || 'Unknown ARN');
 
         item.innerHTML = `
             <div class="policy-item-header">
                 <div class="policy-name">${this.escapeHtml(policy.PolicyName)}</div>
-                <div class="policy-badge ${badgeClass}">${badgeText}</div>
+                <div class="policy-badges">
+                    <div class="policy-badge ${badgeClass}">${badgeText}</div>
+                    ${attachedBadge}
+                </div>
             </div>
-            <div class="policy-arn">${this.escapeHtml(policy.Arn)}</div>
+            <div class="policy-arn">${arnDisplay}</div>
             ${policy.Description ? `<p class="caption mt-sm">${this.escapeHtml(policy.Description)}</p>` : ''}
         `;
 

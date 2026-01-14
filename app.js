@@ -15,6 +15,8 @@ class App {
         this.currentPolicyArn = null;
         this.currentSecurityAnalysis = null;
         this.policyExpansion = new PolicyExpansion();
+        this.isLimitedMode = false;
+        this.inlinePolicies = [];
 
         this.init();
     }
@@ -87,6 +89,63 @@ class App {
         if (closeComparisonBtn) {
             closeComparisonBtn.addEventListener('click', () => this.closeVersionComparison());
         }
+
+        // Manual ARN entry
+        const toggleManualArnBtn = document.getElementById('toggle-manual-arn');
+        if (toggleManualArnBtn) {
+            toggleManualArnBtn.addEventListener('click', () => this.toggleManualArnForm());
+        }
+
+        const analyzeArnBtn = document.getElementById('analyze-arn-btn');
+        if (analyzeArnBtn) {
+            analyzeArnBtn.addEventListener('click', () => this.handleManualArnAnalyze());
+        }
+
+        const manualArnInput = document.getElementById('manual-policy-arn');
+        if (manualArnInput) {
+            manualArnInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    this.handleManualArnAnalyze();
+                }
+            });
+        }
+    }
+
+    /**
+     * Toggle manual ARN form visibility
+     */
+    toggleManualArnForm() {
+        const form = document.getElementById('manual-arn-form');
+        const toggleBtn = document.getElementById('toggle-manual-arn');
+        
+        if (form.style.display === 'none') {
+            form.style.display = 'flex';
+            toggleBtn.textContent = 'Hide';
+        } else {
+            form.style.display = 'none';
+            toggleBtn.textContent = 'Show';
+        }
+    }
+
+    /**
+     * Handle manual ARN analysis
+     */
+    async handleManualArnAnalyze() {
+        const arnInput = document.getElementById('manual-policy-arn');
+        const arn = arnInput.value.trim();
+
+        if (!arn) {
+            this.showError('Please enter a policy ARN');
+            return;
+        }
+
+        // Basic ARN validation
+        if (!arn.startsWith('arn:aws:iam::')) {
+            this.showError('Invalid ARN format. Expected: arn:aws:iam::ACCOUNT:policy/NAME or arn:aws:iam::aws:policy/NAME');
+            return;
+        }
+
+        await this.showPolicyDetail(arn);
     }
 
     /**
@@ -113,7 +172,7 @@ class App {
             // Initialize AWS handler
             awsHandler.initialize(accessKeyId, secretAccessKey, sessionToken, region);
 
-            // Test connection
+            // Test connection using STS GetCallerIdentity
             const testResult = await awsHandler.testConnection();
             
             if (!testResult.success) {
@@ -123,8 +182,11 @@ class App {
                 return;
             }
 
-            // Connection successful
+            // Connection successful - show identity info
             this.showSuccess('Connected successfully! Loading policies...');
+            
+            // Display identity information
+            this.displayIdentityInfo(testResult.identity);
             
             // Hide credential form, show explorer
             document.getElementById('credential-section').style.display = 'none';
@@ -137,6 +199,19 @@ class App {
             this.showError(`Error: ${error.message}`);
             connectBtn.disabled = false;
             connectBtn.textContent = 'Connect';
+        }
+    }
+
+    /**
+     * Display the current AWS identity info
+     */
+    displayIdentityInfo(identity) {
+        const identityInfo = document.getElementById('identity-info');
+        const identityArn = document.getElementById('identity-arn');
+        
+        if (identityInfo && identityArn && identity) {
+            identityArn.textContent = identity.arn;
+            identityInfo.style.display = 'flex';
         }
     }
 
@@ -156,10 +231,27 @@ class App {
             document.getElementById('policy-list').innerHTML = '';
             document.getElementById('policy-detail').style.display = 'none';
             
+            // Hide identity info and limited mode notice
+            const identityInfo = document.getElementById('identity-info');
+            if (identityInfo) identityInfo.style.display = 'none';
+            
+            const limitedNotice = document.getElementById('limited-permissions-notice');
+            if (limitedNotice) limitedNotice.style.display = 'none';
+            
+            // Reset manual ARN form
+            const manualArnForm = document.getElementById('manual-arn-form');
+            if (manualArnForm) manualArnForm.style.display = 'none';
+            const toggleBtn = document.getElementById('toggle-manual-arn');
+            if (toggleBtn) toggleBtn.textContent = 'Show';
+            const manualArnInput = document.getElementById('manual-policy-arn');
+            if (manualArnInput) manualArnInput.value = '';
+            
             // Reset state
             this.allPolicies = [];
             this.filteredPolicies = [];
             this.currentPolicy = null;
+            this.isLimitedMode = false;
+            this.inlinePolicies = [];
             
             const connectBtn = document.getElementById('connect-btn');
             connectBtn.disabled = false;
@@ -177,11 +269,14 @@ class App {
         const policyList = document.getElementById('policy-list');
         const statsSection = document.getElementById('policy-stats');
         const searchSection = document.getElementById('search-section');
+        const limitedNotice = document.getElementById('limited-permissions-notice');
+        const manualArnSection = document.getElementById('manual-arn-section');
 
         loadingIndicator.style.display = 'block';
         policyList.style.display = 'none';
         statsSection.style.display = 'none';
         searchSection.style.display = 'none';
+        if (limitedNotice) limitedNotice.style.display = 'none';
 
         try {
             const result = await awsHandler.listAllPolicies();
@@ -189,13 +284,30 @@ class App {
             if (!result.success) {
                 this.showError(`Failed to load policies: ${result.error}`);
                 loadingIndicator.style.display = 'none';
+                
+                // Even if we can't list policies, show the manual ARN section
+                if (manualArnSection) {
+                    manualArnSection.style.display = 'block';
+                    // Auto-expand the manual ARN form
+                    const form = document.getElementById('manual-arn-form');
+                    const toggleBtn = document.getElementById('toggle-manual-arn');
+                    if (form) form.style.display = 'flex';
+                    if (toggleBtn) toggleBtn.textContent = 'Hide';
+                }
                 return;
             }
+
+            // Check if we're in limited mode
+            this.isLimitedMode = result.mode === 'limited';
+            
+            // Store inline policies separately
+            this.inlinePolicies = result.data.inlinePolicies || [];
 
             // Combine all policies
             this.allPolicies = [
                 ...result.data.awsManaged.map(p => ({ ...p, type: 'aws-managed' })),
-                ...result.data.customerManaged.map(p => ({ ...p, type: 'customer-managed' }))
+                ...result.data.customerManaged.map(p => ({ ...p, type: 'customer-managed' })),
+                ...this.inlinePolicies.map(p => ({ ...p, type: 'inline' }))
             ];
 
             this.filteredPolicies = [...this.allPolicies];
@@ -207,6 +319,11 @@ class App {
                 customerManaged: result.data.customerManaged.length
             });
 
+            // Show limited permissions notice if applicable
+            if (this.isLimitedMode && limitedNotice) {
+                limitedNotice.style.display = 'flex';
+            }
+
             // Render policy list
             this.renderPolicies();
 
@@ -215,6 +332,11 @@ class App {
             policyList.style.display = 'block';
             statsSection.style.display = 'grid';
             searchSection.style.display = 'grid';
+            
+            // Show success message in limited mode
+            if (this.isLimitedMode && result.message) {
+                this.showSuccess(result.message);
+            }
 
         } catch (error) {
             this.showError(`Error loading policies: ${error.message}`);
@@ -268,10 +390,17 @@ class App {
         this.filteredPolicies = this.allPolicies.filter(policy => {
             const matchesSearch = !searchTerm || 
                                 policy.PolicyName.toLowerCase().includes(searchTerm) ||
-                                policy.Arn.toLowerCase().includes(searchTerm) ||
+                                (policy.Arn && policy.Arn.toLowerCase().includes(searchTerm)) ||
                                 (policy.Description && policy.Description.toLowerCase().includes(searchTerm));
             
-            const matchesFilter = filterValue === 'all' || policy.type === filterValue;
+            let matchesFilter;
+            if (filterValue === 'all') {
+                matchesFilter = true;
+            } else if (filterValue === 'attached') {
+                matchesFilter = policy.isAttachedToUser || policy.isInline;
+            } else {
+                matchesFilter = policy.type === filterValue;
+            }
 
             return matchesSearch && matchesFilter;
         });
@@ -296,10 +425,31 @@ class App {
         loadingIndicator.style.display = 'block';
 
         try {
-            const result = await awsHandler.getCompletePolicyInfo(policyArn);
+            let result;
+            
+            // Check if this is an inline policy (identified by inline: prefix)
+            if (policyArn.startsWith('inline:')) {
+                // Find the inline policy in our stored list
+                const inlineId = policyArn.substring(7); // Remove 'inline:' prefix
+                const [userName, policyName] = inlineId.split('/');
+                const inlinePolicy = this.inlinePolicies.find(p => 
+                    p.PolicyName === policyName && p.userName === userName
+                );
+                
+                if (inlinePolicy) {
+                    result = awsHandler.getInlinePolicyInfo(inlinePolicy);
+                } else {
+                    this.showError('Inline policy not found');
+                    this.showPolicyList();
+                    return;
+                }
+            } else {
+                result = await awsHandler.getCompletePolicyInfo(policyArn);
+            }
 
             if (!result.success) {
                 this.showError(`Failed to load policy details: ${result.error}`);
+                loadingIndicator.style.display = 'none';
                 this.showPolicyList();
                 return;
             }
@@ -307,27 +457,38 @@ class App {
             this.currentPolicy = result.data;
             this.currentPolicyArn = policyArn;
 
+            // Determine policy type
+            let policyType = 'Customer Managed';
+            if (result.data.policy.isInline) {
+                policyType = 'Inline Policy';
+            } else if (result.data.policy.Arn && result.data.policy.Arn.includes(':aws:policy/')) {
+                policyType = 'AWS Managed';
+            }
+
             // Update detail view
             document.getElementById('detail-policy-name').textContent = result.data.policy.PolicyName;
-            document.getElementById('detail-policy-arn').textContent = result.data.policy.Arn;
-            document.getElementById('detail-policy-type').textContent = 
-                result.data.policy.Arn.includes(':aws:policy/') ? 'AWS Managed' : 'Customer Managed';
+            document.getElementById('detail-policy-arn').textContent = result.data.policy.Arn || 'N/A (Inline Policy)';
+            document.getElementById('detail-policy-type').textContent = policyType;
             document.getElementById('detail-policy-created').textContent = 
                 PolicyVisualizer.formatDate(result.data.policy.CreateDate);
             document.getElementById('detail-policy-updated').textContent = 
                 PolicyVisualizer.formatDate(result.data.policy.UpdateDate);
 
-            // Render versions list
+            // Render versions list (inline policies don't have versions)
             const versionsList = document.getElementById('version-list');
-            PolicyVisualizer.renderVersionsList(
-                result.data.allVersions,
-                result.data.policy.DefaultVersionId,
-                versionsList,
-                (versionId) => this.handleSetDefaultVersion(policyArn, versionId)
-            );
+            if (result.data.policy.isInline) {
+                versionsList.innerHTML = '<p class="caption">Inline policies do not have versions</p>';
+            } else {
+                PolicyVisualizer.renderVersionsList(
+                    result.data.allVersions,
+                    result.data.policy.DefaultVersionId,
+                    versionsList,
+                    (versionId) => this.handleSetDefaultVersion(policyArn, versionId)
+                );
 
-            // Setup version checkbox listeners
-            this.setupVersionCheckboxListeners();
+                // Setup version checkbox listeners
+                this.setupVersionCheckboxListeners();
+            }
 
             // Run security analysis
             this.currentSecurityAnalysis = analyzePolicyForShadowAdmin(result.data.currentVersion.Document);
