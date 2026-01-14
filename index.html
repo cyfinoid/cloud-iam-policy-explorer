@@ -182,12 +182,14 @@
                 <div class="view-toggle">
                     <button class="toggle-btn" data-view="security">Security Analysis</button>
                     <button class="toggle-btn active" data-view="visual">Visual</button>
+                    <button class="toggle-btn" data-view="expansion">Expansion</button>
                     <button class="toggle-btn" data-view="json">JSON</button>
                 </div>
 
                 <!-- Policy Content Views -->
                 <div id="policy-content-security" class="policy-content"></div>
                 <div id="policy-content-visual" class="policy-content" style="display: none;"></div>
+                <div id="policy-content-expansion" class="policy-content" style="display: none;"></div>
                 <div id="policy-content-json" class="policy-content" style="display: none;">
                     <pre><code id="json-display"></code></pre>
                 </div>
@@ -207,6 +209,7 @@
     <!-- Application Scripts -->
     <script type="module" src="aws-handler.js?v=1.2"></script>
     <script type="module" src="policy-visualizer.js?v=1.2"></script>
+    <script type="module" src="policy-expansion.js?v=1.2"></script>
     <script type="module" src="app.js?v=1.2"></script>
 </body>
 </html>

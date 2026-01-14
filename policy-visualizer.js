@@ -781,6 +781,173 @@ export class SecurityVisualizer {
     }
 
     /**
+     * Render policy expansion analysis
+     */
+    static renderPolicyExpansion(analysisResult, containerElement) {
+        containerElement.innerHTML = '';
+
+        if (!analysisResult || !analysisResult.isValid) {
+            containerElement.innerHTML = '<p class="caption">Unable to analyze policy expansion</p>';
+            return;
+        }
+
+        const expansionContainer = document.createElement('div');
+        expansionContainer.className = 'expansion-analysis';
+
+        // Overall impact summary
+        const summaryCard = this.createExpansionSummary(analysisResult);
+        expansionContainer.appendChild(summaryCard);
+
+        // Statement-by-statement breakdown
+        if (analysisResult.statements && analysisResult.statements.length > 0) {
+            const statementsSection = this.createExpansionStatements(analysisResult.statements);
+            expansionContainer.appendChild(statementsSection);
+        }
+
+        containerElement.appendChild(expansionContainer);
+    }
+
+    /**
+     * Create expansion impact summary card
+     */
+    static createExpansionSummary(analysisResult) {
+        const summary = analysisResult.summary;
+        const impactLevel = this.getExpansionImpactLevel(summary.expansionRatio);
+
+        const card = document.createElement('div');
+        card.className = `expansion-summary impact-${impactLevel}`;
+
+        card.innerHTML = `
+            <div class="expansion-summary-header">
+                <h3 class="section-header">🔍 Permission Expansion Analysis</h3>
+                <div class="impact-badge">${this.getExpansionImpactDescription(impactLevel)}</div>
+            </div>
+
+            <div class="expansion-stats">
+                <div class="stat-item">
+                    <div class="stat-value">${summary.totalPatterns}</div>
+                    <div class="stat-label">Total Patterns</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value">${summary.totalExpandedActions}</div>
+                    <div class="stat-label">Expanded Actions</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value">${summary.expansionRatio.toFixed(1)}x</div>
+                    <div class="stat-label">Expansion Ratio</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value">${summary.servicesAffected.length}</div>
+                    <div class="stat-label">Services Affected</div>
+                </div>
+            </div>
+
+            <div class="expansion-details">
+                <div class="detail-row">
+                    <span class="detail-label">Wildcard patterns:</span>
+                    <span class="detail-value">${summary.wildcardPatterns}</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Exact patterns:</span>
+                    <span class="detail-value">${summary.exactPatterns}</span>
+                </div>
+            </div>
+        `;
+
+        return card;
+    }
+
+    /**
+     * Create statement-by-statement expansion breakdown
+     */
+    static createExpansionStatements(statements) {
+        const section = document.createElement('div');
+        section.className = 'expansion-statements';
+
+        const header = document.createElement('h4');
+        header.className = 'section-header';
+        header.textContent = 'Statement Analysis';
+        section.appendChild(header);
+
+        statements.forEach(statement => {
+            const statementCard = this.createExpansionStatementCard(statement);
+            section.appendChild(statementCard);
+        });
+
+        return section;
+    }
+
+    /**
+     * Create expansion card for a single statement
+     */
+    static createExpansionStatementCard(statement) {
+        const card = document.createElement('div');
+        card.className = `expansion-statement effect-${statement.effect.toLowerCase()}`;
+
+        let html = `
+            <div class="statement-header">
+                <span class="statement-title">Statement ${statement.index}</span>
+                <span class="statement-effect effect-${statement.effect.toLowerCase()}">${statement.effect}</span>
+            </div>
+            <div class="statement-stats">
+                <span class="stat">${statement.patterns.length} patterns</span>
+                <span class="stat">${statement.totalExpandedActions} actions</span>
+                <span class="stat">${statement.servicesAffected.length} services</span>
+            </div>
+        `;
+
+        if (statement.expansions && statement.expansions.length > 0) {
+            html += '<div class="pattern-expansions">';
+
+            statement.expansions.forEach(expansion => {
+                const patternClass = expansion.hasWildcard ? 'pattern-wildcard' : 'pattern-exact';
+                const typeIcon = expansion.hasWildcard ? '🔸' : '🔹';
+                const sampleText = expansion.sampleActions.slice(0, 3).join(', ') +
+                    (expansion.expandedCount > 3 ? ` ... +${expansion.expandedCount - 3} more` : '');
+
+                html += `
+                    <div class="pattern-expansion ${patternClass}">
+                        <div class="pattern-header">
+                            <span class="pattern-type">${typeIcon}</span>
+                            <code class="pattern-text">${this.escapeHtml(expansion.originalPattern)}</code>
+                            <span class="pattern-count">${expansion.expandedCount} actions</span>
+                        </div>
+                        ${expansion.expandedCount > 0 ? `<div class="pattern-sample">${this.escapeHtml(sampleText)}</div>` : ''}
+                    </div>
+                `;
+            });
+
+            html += '</div>';
+        }
+
+        card.innerHTML = html;
+        return card;
+    }
+
+    /**
+     * Get expansion impact level based on ratio
+     */
+    static getExpansionImpactLevel(ratio) {
+        if (ratio >= 100) return 'critical';
+        if (ratio >= 50) return 'high';
+        if (ratio >= 10) return 'medium';
+        return 'low';
+    }
+
+    /**
+     * Get human-readable impact description
+     */
+    static getExpansionImpactDescription(level) {
+        switch (level) {
+            case 'critical': return '🔴 CRITICAL - Very Broad Permissions';
+            case 'high': return '🟠 HIGH - Broad Permissions';
+            case 'medium': return '🟡 MEDIUM - Moderate Permissions';
+            case 'low': return '🟢 LOW - Specific Permissions';
+            default: return '⚪ UNKNOWN';
+        }
+    }
+
+    /**
      * Escape HTML to prevent XSS
      */
     static escapeHtml(text) {

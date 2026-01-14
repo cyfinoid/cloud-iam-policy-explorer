@@ -5,6 +5,7 @@
 
 import { awsHandler, analyzePolicyForShadowAdmin } from './aws-handler.js';
 import { PolicyVisualizer, SecurityVisualizer } from './policy-visualizer.js';
+import { PolicyExpansion } from './policy-expansion.js';
 
 class App {
     constructor() {
@@ -13,16 +14,27 @@ class App {
         this.currentPolicy = null;
         this.currentPolicyArn = null;
         this.currentSecurityAnalysis = null;
-        
+        this.policyExpansion = new PolicyExpansion();
+
         this.init();
     }
 
     /**
      * Initialize the application
      */
-    init() {
-        this.setupEventListeners();
-        console.log('AWS Policy Explorer initialized');
+    async init() {
+        try {
+            // Initialize policy expansion analyzer
+            await this.policyExpansion.initialize();
+
+            this.setupEventListeners();
+            console.log('AWS Policy Explorer initialized');
+        } catch (error) {
+            console.error('Failed to initialize Policy Expansion:', error);
+            // Continue without expansion features
+            this.setupEventListeners();
+            console.log('AWS Policy Explorer initialized (without expansion analysis)');
+        }
     }
 
     /**
@@ -366,6 +378,7 @@ class App {
     handleViewToggle(view) {
         const securityContent = document.getElementById('policy-content-security');
         const visualContent = document.getElementById('policy-content-visual');
+        const expansionContent = document.getElementById('policy-content-expansion');
         const jsonContent = document.getElementById('policy-content-json');
         const toggleBtns = document.querySelectorAll('.toggle-btn');
 
@@ -382,15 +395,53 @@ class App {
         if (view === 'security') {
             securityContent.style.display = 'block';
             visualContent.style.display = 'none';
+            expansionContent.style.display = 'none';
             jsonContent.style.display = 'none';
         } else if (view === 'visual') {
             securityContent.style.display = 'none';
             visualContent.style.display = 'block';
+            expansionContent.style.display = 'none';
             jsonContent.style.display = 'none';
+        } else if (view === 'expansion') {
+            securityContent.style.display = 'none';
+            visualContent.style.display = 'none';
+            expansionContent.style.display = 'block';
+            jsonContent.style.display = 'none';
+
+            // Render expansion analysis
+            this.renderExpansionAnalysis();
         } else {
             securityContent.style.display = 'none';
             visualContent.style.display = 'none';
+            expansionContent.style.display = 'none';
             jsonContent.style.display = 'block';
+        }
+    }
+
+    /**
+     * Render policy expansion analysis
+     */
+    renderExpansionAnalysis() {
+        const expansionContent = document.getElementById('policy-content-expansion');
+
+        if (!this.currentPolicy || !this.policyExpansion) {
+            expansionContent.innerHTML = '<p class="caption">No policy loaded for expansion analysis</p>';
+            return;
+        }
+
+        try {
+            // Get the policy document
+            const policyDocument = this.currentPolicy.Document;
+
+            // Analyze expansion
+            const analysisResult = this.policyExpansion.analyzePolicy(policyDocument);
+
+            // Render the analysis
+            PolicyVisualizer.renderPolicyExpansion(analysisResult, expansionContent);
+
+        } catch (error) {
+            console.error('Error analyzing policy expansion:', error);
+            expansionContent.innerHTML = `<p class="caption error">Error analyzing policy: ${error.message}</p>`;
         }
     }
 
