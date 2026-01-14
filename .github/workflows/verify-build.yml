@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [ main, master ]
 
+# Minimal permissions required for this workflow
+permissions:
+  contents: read
+
 jobs:
   verify:
     runs-on: ubuntu-latest
@@ -22,6 +26,7 @@ jobs:
             "styles.css"
             "aws-handler.js"
             "policy-visualizer.js"
+            "policy-expansion.js"
             "app.js"
             "README.md"
           )
@@ -66,24 +71,42 @@ jobs:
           
           echo "✅ HTML syntax check passed!"
 
-      - name: Check for ES6 modules
+      - name: Check JavaScript structure
         run: |
-          echo "Checking JavaScript module system..."
-          if grep -q 'type="module"' index.html; then
-            echo "✓ ES6 modules detected in index.html"
+          echo "Checking JavaScript structure..."
+          
+          # Check for AWS SDK loading via importmap
+          if grep -q 'type="importmap"' index.html; then
+            echo "✓ Import map detected for AWS SDK"
           else
-            echo "⚠ No ES6 modules found"
+            echo "⚠ No import map found"
           fi
           
-          if grep -q 'import.*from' aws-handler.js; then
-            echo "✓ ES6 import found in aws-handler.js"
+          # Check for AWS SDK global exposure
+          if grep -q 'window.IAMClient' index.html || grep -q 'window.awsSdkLoaded' index.html; then
+            echo "✓ AWS SDK globals setup found"
+          else
+            echo "⚠ AWS SDK global setup not found"
           fi
           
-          if grep -q 'export' policy-visualizer.js; then
-            echo "✓ ES6 export found in policy-visualizer.js"
+          # Check for main classes
+          if grep -q 'class AWSHandler' aws-handler.js; then
+            echo "✓ AWSHandler class found"
           fi
           
-          echo "✅ Module system check complete!"
+          if grep -q 'class PolicyVisualizer' policy-visualizer.js; then
+            echo "✓ PolicyVisualizer class found"
+          fi
+          
+          if grep -q 'class PolicyExpansion' policy-expansion.js; then
+            echo "✓ PolicyExpansion class found"
+          fi
+          
+          if grep -q 'class App' app.js; then
+            echo "✓ App class found"
+          fi
+          
+          echo "✅ JavaScript structure check complete!"
 
       - name: Check cache-busting versions
         run: |
