@@ -1,11 +1,11 @@
 /**
  * Main Application Module
  * Coordinates UI interactions and AWS operations
+ * 
+ * Note: All dependencies (awsHandler, PolicyVisualizer, SecurityVisualizer, 
+ * PolicyExpansion, analyzePolicyForShadowAdmin) are loaded as globals
+ * from previous script tags.
  */
-
-import { awsHandler, analyzePolicyForShadowAdmin } from './aws-handler.js';
-import { PolicyVisualizer, SecurityVisualizer } from './policy-visualizer.js';
-import { PolicyExpansion } from './policy-expansion.js';
 
 class App {
     constructor() {
@@ -786,8 +786,20 @@ class App {
     }
 }
 
-// Initialize the application when DOM is ready
-document.addEventListener('DOMContentLoaded', () => {
+// Initialize the application when DOM is ready AND AWS SDK is loaded
+function initApp() {
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => initApp());
+        return;
+    }
+    
+    if (!window.awsSdkLoaded) {
+        window.addEventListener('aws-sdk-loaded', () => initApp());
+        return;
+    }
+    
     new App();
-});
+}
+
+initApp();
 

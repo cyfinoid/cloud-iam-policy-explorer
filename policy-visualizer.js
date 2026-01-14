@@ -3,7 +3,7 @@
  * Handles rendering and visualization of IAM policies
  */
 
-export class PolicyVisualizer {
+class PolicyVisualizer {
     /**
      * Render the list of policies
      */
@@ -562,7 +562,7 @@ export class PolicyVisualizer {
 /**
  * Security Visualizer - Display shadow admin detection results
  */
-export class SecurityVisualizer {
+class SecurityVisualizer {
     /**
      * Render security analysis results
      */

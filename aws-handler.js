@@ -1,25 +1,10 @@
 /**
  * AWS Handler Module
  * Manages AWS SDK interactions for IAM policy operations
+ * 
+ * Note: AWS SDK classes (IAMClient, STSClient, etc.) are loaded globally
+ * from the importmap in index.html before this script runs.
  */
-
-import { 
-    IAMClient, 
-    ListPoliciesCommand,
-    GetPolicyCommand,
-    GetPolicyVersionCommand,
-    ListPolicyVersionsCommand,
-    SetDefaultPolicyVersionCommand,
-    ListAttachedUserPoliciesCommand,
-    ListUserPoliciesCommand,
-    GetUserPolicyCommand,
-    GetUserCommand
-} from '@aws-sdk/client-iam';
-
-import {
-    STSClient,
-    GetCallerIdentityCommand
-} from '@aws-sdk/client-sts';
 
 class AWSHandler {
     constructor() {
@@ -522,8 +507,8 @@ class AWSHandler {
     }
 }
 
-// Export singleton instance
-export const awsHandler = new AWSHandler();
+// Global singleton instance
+const awsHandler = new AWSHandler();
 
 /**
  * Shadow Admin Detection - Privilege Escalation Methods
@@ -711,7 +696,7 @@ const ESCALATION_METHODS = {
 /**
  * Analyze policy document for shadow admin and privilege escalation issues
  */
-export const analyzePolicyForShadowAdmin = (policyDocument) => {
+const analyzePolicyForShadowAdmin = (policyDocument) => {
     const issues = [];
     const detectedMethods = [];
     let maxRiskLevel = 0;

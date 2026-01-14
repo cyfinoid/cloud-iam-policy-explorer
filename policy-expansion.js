@@ -3,7 +3,10 @@
  * Analyzes IAM policy wildcards and shows their real impact using official AWS data
  */
 
-export class PolicyExpansion {
+// Create global app object for AWS policies script compatibility
+window.app = window.app || {};
+
+class PolicyExpansion {
     constructor() {
         this.awsData = null;
         this.allActions = [];
