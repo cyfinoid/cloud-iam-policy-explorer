@@ -92,18 +92,45 @@ jobs:
           # Check for main classes
           if grep -q 'class AWSHandler' aws-handler.js; then
             echo "✓ AWSHandler class found"
+          else
+            echo "✗ AWSHandler class missing"; exit 1
           fi
           
           if grep -q 'class PolicyVisualizer' policy-visualizer.js; then
             echo "✓ PolicyVisualizer class found"
+          else
+            echo "✗ PolicyVisualizer class missing"; exit 1
+          fi
+          
+          if grep -q 'class SecurityVisualizer' policy-visualizer.js; then
+            echo "✓ SecurityVisualizer class found"
+          else
+            echo "✗ SecurityVisualizer class missing"; exit 1
           fi
           
           if grep -q 'class PolicyExpansion' policy-expansion.js; then
             echo "✓ PolicyExpansion class found"
+          else
+            echo "✗ PolicyExpansion class missing"; exit 1
           fi
           
           if grep -q 'class App' app.js; then
             echo "✓ App class found"
+          else
+            echo "✗ App class missing"; exit 1
+          fi
+          
+          # Check shadow admin / escalation detection
+          if grep -q 'ESCALATION_METHODS' aws-handler.js; then
+            echo "✓ ESCALATION_METHODS catalog found"
+          else
+            echo "✗ ESCALATION_METHODS missing"; exit 1
+          fi
+          
+          if grep -q 'analyzePolicyForShadowAdmin' aws-handler.js; then
+            echo "✓ analyzePolicyForShadowAdmin function found"
+          else
+            echo "✗ analyzePolicyForShadowAdmin missing"; exit 1
           fi
           
           echo "✅ JavaScript structure check complete!"

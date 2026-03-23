@@ -512,183 +512,626 @@ const awsHandler = new AWSHandler();
 
 /**
  * Shadow Admin Detection - Privilege Escalation Methods
- * Based on research from Rhino Security Labs Pacu framework
+ * Based on pathfinding.cloud catalog (66 paths) and Rhino Security Labs Pacu research.
+ *
+ * Categories (from pathfinding.cloud schema):
+ *   self-escalation   – principal modifies its own permissions
+ *   principal-access  – gains access to another principal
+ *   new-passrole      – creates a new resource with a privileged role
+ *   existing-passrole – leverages an already-attached role on an existing resource
+ *   credential-access – obtains credentials for another principal
  */
 
 const ESCALATION_METHODS = {
-    // IAM Policy Manipulation
-    'CreateNewPolicyVersion': {
+
+    // ── IAM Self-Escalation ──────────────────────────────────────────────
+
+    'iam-001: CreatePolicyVersion': {
         permissions: ['iam:createpolicyversion'],
         optional: ['iam:listattachedgrouppolicies', 'iam:listattachedrolepolicies', 'iam:listattacheduserpolicies'],
         riskLevel: 10,
-        category: 'IAM Policy Manipulation',
+        category: 'Self-Escalation',
+        service: 'iam',
         description: 'Can create new policy version with admin permissions and set as default'
     },
+    'iam-005: PutRolePolicy': {
+        permissions: ['iam:putrolepolicy'],
+        optional: ['iam:listrolepolicies'],
+        riskLevel: 10,
+        category: 'Self-Escalation',
+        service: 'iam',
+        description: 'Can attach inline admin policy to own role'
+    },
+    'iam-007: PutUserPolicy': {
+        permissions: ['iam:putuserpolicy'],
+        optional: ['iam:listuserpolicies'],
+        riskLevel: 10,
+        category: 'Self-Escalation',
+        service: 'iam',
+        description: 'Can create inline policy with admin permissions on own user'
+    },
+    'iam-008: AttachUserPolicy': {
+        permissions: ['iam:attachuserpolicy'],
+        optional: ['iam:listusers'],
+        riskLevel: 10,
+        category: 'Self-Escalation',
+        service: 'iam',
+        description: 'Can attach AdministratorAccess policy to own user'
+    },
+    'iam-009: AttachRolePolicy': {
+        permissions: ['iam:attachrolepolicy'],
+        optional: ['iam:listroles'],
+        riskLevel: 10,
+        category: 'Self-Escalation',
+        service: 'iam',
+        description: 'Can attach admin policy to own role'
+    },
+    'iam-010: AttachGroupPolicy': {
+        permissions: ['iam:attachgrouppolicy'],
+        optional: ['iam:listgroupsforuser'],
+        riskLevel: 10,
+        category: 'Self-Escalation',
+        service: 'iam',
+        description: 'Can attach admin policy to a group user belongs to'
+    },
+    'iam-011: PutGroupPolicy': {
+        permissions: ['iam:putgrouppolicy'],
+        optional: ['iam:listgrouppolicies'],
+        riskLevel: 10,
+        category: 'Self-Escalation',
+        service: 'iam',
+        description: 'Can create inline admin policy on a group user belongs to'
+    },
+    'iam-013: AddUserToGroup': {
+        permissions: ['iam:addusertogroup'],
+        optional: ['iam:listgroups'],
+        riskLevel: 8,
+        category: 'Self-Escalation',
+        service: 'iam',
+        description: 'Can add self to privileged group'
+    },
+
+    // ── IAM Principal Access ─────────────────────────────────────────────
+
+    'iam-002: CreateAccessKey': {
+        permissions: ['iam:createaccesskey'],
+        optional: ['iam:listusers'],
+        riskLevel: 9,
+        category: 'Principal Access',
+        service: 'iam',
+        description: 'Can create access keys for privileged users'
+    },
+    'iam-003: CreateAccessKey + DeleteAccessKey': {
+        permissions: ['iam:createaccesskey', 'iam:deleteaccesskey'],
+        optional: ['iam:listusers', 'iam:listaccesskeys'],
+        riskLevel: 9,
+        category: 'Principal Access',
+        service: 'iam',
+        description: 'Can delete then create access keys even when user has 2 keys'
+    },
+    'iam-004: CreateLoginProfile': {
+        permissions: ['iam:createloginprofile'],
+        optional: ['iam:listusers'],
+        riskLevel: 8,
+        category: 'Principal Access',
+        service: 'iam',
+        description: 'Can create console password for privileged users'
+    },
+    'iam-006: UpdateLoginProfile': {
+        permissions: ['iam:updateloginprofile'],
+        optional: ['iam:listusers'],
+        riskLevel: 8,
+        category: 'Principal Access',
+        service: 'iam',
+        description: 'Can reset console password for privileged users'
+    },
+    'iam-012: UpdateAssumeRolePolicy': {
+        permissions: ['iam:updateassumerolepolicy'],
+        optional: ['iam:listroles'],
+        riskLevel: 9,
+        category: 'Principal Access',
+        service: 'iam',
+        description: 'Can modify role trust policy to assume privileged role'
+    },
+    'iam-014: AttachRolePolicy + AssumeRole': {
+        permissions: ['iam:attachrolepolicy', 'sts:assumerole'],
+        optional: ['iam:listroles', 'iam:getrole'],
+        riskLevel: 10,
+        category: 'Principal Access',
+        service: 'iam',
+        description: 'Can attach admin policy to another role then assume it'
+    },
+    'iam-015: AttachUserPolicy + CreateAccessKey': {
+        permissions: ['iam:attachuserpolicy', 'iam:createaccesskey'],
+        optional: ['iam:listusers', 'iam:listaccesskeys'],
+        riskLevel: 10,
+        category: 'Principal Access',
+        service: 'iam',
+        description: 'Can attach admin policy to another user then create access keys'
+    },
+    'iam-016: CreatePolicyVersion + AssumeRole': {
+        permissions: ['iam:createpolicyversion', 'sts:assumerole'],
+        optional: ['iam:getpolicy', 'iam:getpolicyversion'],
+        riskLevel: 10,
+        category: 'Principal Access',
+        service: 'iam',
+        description: 'Can modify a policy attached to another role then assume it'
+    },
+    'iam-017: PutRolePolicy + AssumeRole': {
+        permissions: ['iam:putrolepolicy', 'sts:assumerole'],
+        optional: ['iam:listroles', 'iam:listrolepolicies'],
+        riskLevel: 10,
+        category: 'Principal Access',
+        service: 'iam',
+        description: 'Can add inline admin policy to another role then assume it'
+    },
+    'iam-018: PutUserPolicy + CreateAccessKey': {
+        permissions: ['iam:putuserpolicy', 'iam:createaccesskey'],
+        optional: ['iam:listusers', 'iam:listaccesskeys'],
+        riskLevel: 10,
+        category: 'Principal Access',
+        service: 'iam',
+        description: 'Can add inline admin policy to another user then create access keys'
+    },
+    'iam-019: AttachRolePolicy + UpdateAssumeRolePolicy': {
+        permissions: ['iam:attachrolepolicy', 'iam:updateassumerolepolicy'],
+        optional: ['iam:listroles', 'iam:getrole'],
+        riskLevel: 10,
+        category: 'Principal Access',
+        service: 'iam',
+        description: 'Can attach admin policy to a role and modify its trust policy to assume it'
+    },
+    'iam-020: CreatePolicyVersion + UpdateAssumeRolePolicy': {
+        permissions: ['iam:createpolicyversion', 'iam:updateassumerolepolicy'],
+        optional: ['iam:getpolicy', 'iam:listroles'],
+        riskLevel: 10,
+        category: 'Principal Access',
+        service: 'iam',
+        description: 'Can modify policy on a role and update its trust policy to assume it'
+    },
+    'iam-021: PutRolePolicy + UpdateAssumeRolePolicy': {
+        permissions: ['iam:putrolepolicy', 'iam:updateassumerolepolicy'],
+        optional: ['iam:listroles', 'iam:listrolepolicies'],
+        riskLevel: 10,
+        category: 'Principal Access',
+        service: 'iam',
+        description: 'Can add inline policy to a role and modify its trust policy to assume it'
+    },
+
+    // ── STS ──────────────────────────────────────────────────────────────
+
+    'sts-001: AssumeRole': {
+        permissions: ['sts:assumerole'],
+        optional: ['iam:listroles', 'iam:getrole'],
+        riskLevel: 7,
+        category: 'Principal Access',
+        service: 'sts',
+        description: 'Can assume an existing role with elevated permissions'
+    },
+
+    // ── SetDefaultPolicyVersion (Pacu legacy, not in pathfinding.cloud) ─
+
     'SetExistingDefaultPolicyVersion': {
         permissions: ['iam:setdefaultpolicyversion'],
         optional: ['iam:listpolicyversions', 'iam:listattacheduserpolicies'],
         riskLevel: 10,
-        category: 'IAM Policy Manipulation',
+        category: 'Self-Escalation',
+        service: 'iam',
         description: 'Can revert to previous policy version with higher privileges'
     },
-    'AttachUserPolicy': {
-        permissions: ['iam:attachuserpolicy'],
-        optional: ['iam:listusers'],
-        riskLevel: 10,
-        category: 'IAM Policy Manipulation',
-        description: 'Can attach AdministratorAccess policy to own user'
-    },
-    'AttachGroupPolicy': {
-        permissions: ['iam:attachgrouppolicy'],
-        optional: ['iam:listgroupsforuser'],
-        riskLevel: 10,
-        category: 'IAM Policy Manipulation',
-        description: 'Can attach admin policy to a group user belongs to'
-    },
-    'AttachRolePolicy': {
-        permissions: ['iam:attachrolepolicy', 'sts:assumerole'],
-        optional: ['iam:listroles'],
-        riskLevel: 10,
-        category: 'IAM Policy Manipulation',
-        description: 'Can attach admin policy to an assumable role'
-    },
-    'PutUserPolicy': {
-        permissions: ['iam:putuserpolicy'],
-        optional: ['iam:listuserpolicies'],
-        riskLevel: 10,
-        category: 'IAM Policy Manipulation',
-        description: 'Can create inline policy with admin permissions on own user'
-    },
-    'PutGroupPolicy': {
-        permissions: ['iam:putgrouppolicy'],
-        optional: ['iam:listgrouppolicies'],
-        riskLevel: 10,
-        category: 'IAM Policy Manipulation',
-        description: 'Can create inline admin policy on a group user belongs to'
-    },
-    'PutRolePolicy': {
-        permissions: ['iam:putrolepolicy', 'sts:assumerole'],
-        optional: ['iam:listrolepolicies'],
-        riskLevel: 10,
-        category: 'IAM Policy Manipulation',
-        description: 'Can create inline admin policy on an assumable role'
-    },
-    
-    // IAM Principal Manipulation
-    'AddUserToGroup': {
-        permissions: ['iam:addusertogroup'],
-        optional: ['iam:listgroups'],
-        riskLevel: 8,
-        category: 'Principal Manipulation',
-        description: 'Can add self to privileged group'
-    },
-    'CreateAccessKey': {
-        permissions: ['iam:createaccesskey'],
-        optional: ['iam:listusers'],
-        riskLevel: 9,
-        category: 'Principal Manipulation',
-        description: 'Can create access keys for privileged users'
-    },
-    'CreateLoginProfile': {
-        permissions: ['iam:createloginprofile'],
-        optional: ['iam:listusers'],
-        riskLevel: 8,
-        category: 'Principal Manipulation',
-        description: 'Can create console password for privileged users'
-    },
-    'UpdateLoginProfile': {
-        permissions: ['iam:updateloginprofile'],
-        optional: ['iam:listusers'],
-        riskLevel: 8,
-        category: 'Principal Manipulation',
-        description: 'Can reset console password for privileged users'
-    },
-    'UpdateRolePolicyToAssumeIt': {
-        permissions: ['iam:updateassumerolepolicy', 'sts:assumerole'],
-        optional: ['iam:listroles'],
-        riskLevel: 9,
-        category: 'Principal Manipulation',
-        description: 'Can modify role trust policy to assume privileged role'
-    },
-    
-    // PassRole Escalation
-    'PassRoleToEC2': {
+
+    // ── EC2 ──────────────────────────────────────────────────────────────
+
+    'ec2-001: PassRole + RunInstances': {
         permissions: ['iam:passrole', 'ec2:runinstances'],
         optional: ['iam:listinstanceprofiles'],
         riskLevel: 9,
-        category: 'PassRole Escalation',
+        category: 'New PassRole',
+        service: 'ec2',
         description: 'Can pass privileged role to EC2 and extract credentials'
     },
-    'PassRoleToLambda': {
+    'ec2-002: ModifyInstanceAttribute + Stop/Start': {
+        permissions: ['ec2:modifyinstanceattribute', 'ec2:stopinstances', 'ec2:startinstances'],
+        optional: [],
+        riskLevel: 8,
+        category: 'Existing PassRole',
+        service: 'ec2',
+        description: 'Can modify user data of existing EC2 instance with privileged role'
+    },
+    'ec2-003: PassRole + RequestSpotInstances': {
+        permissions: ['iam:passrole', 'ec2:requestspotinstances'],
+        optional: ['iam:listroles', 'iam:listinstanceprofiles'],
+        riskLevel: 9,
+        category: 'New PassRole',
+        service: 'ec2',
+        description: 'Can launch spot instance with privileged role'
+    },
+    'ec2-004: CreateLaunchTemplateVersion + ModifyLaunchTemplate': {
+        permissions: ['ec2:createlaunchtemplateversion', 'ec2:modifylaunchtemplate'],
+        optional: ['ec2:describelaunchtemplates', 'ec2:describelaunchtemplateversions'],
+        riskLevel: 8,
+        category: 'Existing PassRole',
+        service: 'ec2',
+        description: 'Can modify launch template to inject user data for instances with privileged role'
+    },
+
+    // ── EC2 Instance Connect ─────────────────────────────────────────────
+
+    'ec2ic-003: SendSSHPublicKey': {
+        permissions: ['ec2-instance-connect:sendsshpublickey'],
+        optional: ['ec2:describeinstances'],
+        riskLevel: 8,
+        category: 'Existing PassRole',
+        service: 'ec2-instance-connect',
+        description: 'Can push SSH key to EC2 instance and access its attached role'
+    },
+
+    // ── Lambda ───────────────────────────────────────────────────────────
+
+    'lambda-001: PassRole + CreateFunction + InvokeFunction': {
         permissions: ['iam:passrole', 'lambda:createfunction', 'lambda:invokefunction'],
         optional: ['iam:listroles'],
         riskLevel: 10,
-        category: 'PassRole Escalation',
+        category: 'New PassRole',
+        service: 'lambda',
         description: 'Can create Lambda with privileged role and invoke it'
     },
-    'PassRoleToLambdaDynamoDB': {
-        permissions: ['iam:passrole', 'lambda:createfunction', 'lambda:createeventsourcemapping', 'dynamodb:putitem'],
-        optional: ['dynamodb:createtable'],
+    'lambda-002: PassRole + CreateFunction + CreateEventSourceMapping': {
+        permissions: ['iam:passrole', 'lambda:createfunction', 'lambda:createeventsourcemapping'],
+        optional: ['iam:listroles'],
         riskLevel: 9,
-        category: 'PassRole Escalation',
-        description: 'Can create Lambda with privileged role triggered by DynamoDB'
+        category: 'New PassRole',
+        service: 'lambda',
+        description: 'Can create Lambda with privileged role triggered by event source'
     },
-    'UpdateLambdaFunction': {
+    'lambda-003: UpdateFunctionCode': {
         permissions: ['lambda:updatefunctioncode'],
-        optional: ['lambda:listfunctions', 'lambda:invokefunction'],
+        optional: ['lambda:listfunctions', 'lambda:getfunction'],
         riskLevel: 9,
-        category: 'PassRole Escalation',
+        category: 'Existing PassRole',
+        service: 'lambda',
         description: 'Can modify existing Lambda function with privileged role'
     },
-    'PassRoleToGlue': {
-        permissions: ['iam:passrole', 'glue:createdevendpoint'],
-        optional: ['glue:getdevendpoint', 'iam:listroles'],
+    'lambda-004: UpdateFunctionCode + InvokeFunction': {
+        permissions: ['lambda:updatefunctioncode', 'lambda:invokefunction'],
+        optional: ['lambda:listfunctions', 'lambda:getfunction'],
         riskLevel: 9,
-        category: 'PassRole Escalation',
-        description: 'Can create Glue Dev Endpoint with privileged role'
+        category: 'Existing PassRole',
+        service: 'lambda',
+        description: 'Can modify and invoke existing Lambda with privileged role'
     },
-    'UpdateGlueDevEndpoint': {
-        permissions: ['glue:updatedevendpoint'],
-        optional: ['glue:describedevendpoints'],
-        riskLevel: 8,
-        category: 'PassRole Escalation',
-        description: 'Can add SSH key to existing Glue Dev Endpoint'
+    'lambda-005: UpdateFunctionCode + AddPermission': {
+        permissions: ['lambda:updatefunctioncode', 'lambda:addpermission'],
+        optional: ['lambda:listfunctions', 'lambda:getfunction'],
+        riskLevel: 9,
+        category: 'Existing PassRole',
+        service: 'lambda',
+        description: 'Can modify Lambda code and add invocation permission for external trigger'
     },
-    'PassRoleToCloudFormation': {
+    'lambda-006: PassRole + CreateFunction + AddPermission': {
+        permissions: ['iam:passrole', 'lambda:createfunction', 'lambda:addpermission'],
+        optional: ['iam:listroles'],
+        riskLevel: 9,
+        category: 'New PassRole',
+        service: 'lambda',
+        description: 'Can create Lambda with privileged role and allow external invocation'
+    },
+
+    // ── CloudFormation ───────────────────────────────────────────────────
+
+    'cfn-001: PassRole + CreateStack': {
         permissions: ['iam:passrole', 'cloudformation:createstack'],
         optional: ['cloudformation:describestacks', 'iam:listroles'],
         riskLevel: 9,
-        category: 'PassRole Escalation',
+        category: 'New PassRole',
+        service: 'cloudformation',
         description: 'Can create CloudFormation stack with privileged role'
     },
-    'PassRoleToDataPipeline': {
+    'cfn-002: UpdateStack': {
+        permissions: ['cloudformation:updatestack'],
+        optional: ['cloudformation:describestacks', 'cloudformation:gettemplate'],
+        riskLevel: 9,
+        category: 'Existing PassRole',
+        service: 'cloudformation',
+        description: 'Can modify existing stack with privileged service role'
+    },
+    'cfn-003: PassRole + CreateStackSet + CreateStackInstances': {
+        permissions: ['iam:passrole', 'cloudformation:createstackset', 'cloudformation:createstackinstances'],
+        optional: ['cloudformation:describestackset'],
+        riskLevel: 9,
+        category: 'New PassRole',
+        service: 'cloudformation',
+        description: 'Can create StackSet with privileged role across accounts/regions'
+    },
+    'cfn-004: PassRole + UpdateStackSet': {
+        permissions: ['iam:passrole', 'cloudformation:updatestackset'],
+        optional: ['cloudformation:describestackset', 'cloudformation:gettemplate'],
+        riskLevel: 9,
+        category: 'New PassRole',
+        service: 'cloudformation',
+        description: 'Can update StackSet to deploy resources with privileged role'
+    },
+    'cfn-005: CreateChangeSet + ExecuteChangeSet': {
+        permissions: ['cloudformation:createchangeset', 'cloudformation:executechangeset'],
+        optional: ['cloudformation:describechangeset', 'cloudformation:describestacks'],
+        riskLevel: 9,
+        category: 'New PassRole',
+        service: 'cloudformation',
+        description: 'Can create and execute change set on a stack with privileged role'
+    },
+
+    // ── Glue ─────────────────────────────────────────────────────────────
+
+    'glue-001: PassRole + CreateDevEndpoint': {
+        permissions: ['iam:passrole', 'glue:createdevendpoint'],
+        optional: ['glue:getdevendpoint', 'iam:listroles'],
+        riskLevel: 9,
+        category: 'New PassRole',
+        service: 'glue',
+        description: 'Can create Glue Dev Endpoint with privileged role'
+    },
+    'glue-002: UpdateDevEndpoint': {
+        permissions: ['glue:updatedevendpoint'],
+        optional: ['glue:getdevendpoints'],
+        riskLevel: 8,
+        category: 'Existing PassRole',
+        service: 'glue',
+        description: 'Can add SSH key to existing Glue Dev Endpoint'
+    },
+    'glue-003: PassRole + CreateJob + StartJobRun': {
+        permissions: ['iam:passrole', 'glue:createjob', 'glue:startjobrun'],
+        optional: ['iam:listroles'],
+        riskLevel: 9,
+        category: 'New PassRole',
+        service: 'glue',
+        description: 'Can create and run Glue job with privileged role'
+    },
+    'glue-004: PassRole + CreateJob + CreateTrigger': {
+        permissions: ['iam:passrole', 'glue:createjob', 'glue:createtrigger'],
+        optional: ['iam:listroles'],
+        riskLevel: 9,
+        category: 'New PassRole',
+        service: 'glue',
+        description: 'Can create Glue job and schedule trigger with privileged role'
+    },
+    'glue-005: PassRole + UpdateJob + StartJobRun': {
+        permissions: ['iam:passrole', 'glue:updatejob', 'glue:startjobrun'],
+        optional: ['glue:getjob'],
+        riskLevel: 9,
+        category: 'New PassRole',
+        service: 'glue',
+        description: 'Can update existing Glue job to use privileged role and run it'
+    },
+    'glue-006: PassRole + UpdateJob + CreateTrigger': {
+        permissions: ['iam:passrole', 'glue:updatejob', 'glue:createtrigger'],
+        optional: ['glue:getjob'],
+        riskLevel: 9,
+        category: 'New PassRole',
+        service: 'glue',
+        description: 'Can update existing Glue job to use privileged role with a trigger'
+    },
+
+    // ── DataPipeline ─────────────────────────────────────────────────────
+
+    'datapipeline-001: PassRole + CreatePipeline + PutPipelineDefinition': {
         permissions: ['iam:passrole', 'datapipeline:createpipeline', 'datapipeline:putpipelinedefinition'],
         optional: ['iam:listroles'],
         riskLevel: 8,
-        category: 'PassRole Escalation',
+        category: 'New PassRole',
+        service: 'datapipeline',
         description: 'Can create Data Pipeline with privileged role'
     },
+
+    // ── CodeBuild ────────────────────────────────────────────────────────
+
+    'codebuild-001: PassRole + CreateProject + StartBuild': {
+        permissions: ['iam:passrole', 'codebuild:createproject', 'codebuild:startbuild'],
+        optional: ['iam:listroles', 'codebuild:batchgetbuilds'],
+        riskLevel: 9,
+        category: 'New PassRole',
+        service: 'codebuild',
+        description: 'Can create CodeBuild project with privileged role and start build'
+    },
+    'codebuild-002: StartBuild': {
+        permissions: ['codebuild:startbuild'],
+        optional: ['codebuild:listprojects', 'codebuild:batchgetprojects'],
+        riskLevel: 8,
+        category: 'Existing PassRole',
+        service: 'codebuild',
+        description: 'Can start build on existing project with privileged role'
+    },
+    'codebuild-003: StartBuildBatch': {
+        permissions: ['codebuild:startbuildbatch'],
+        optional: ['codebuild:listprojects', 'codebuild:batchgetprojects'],
+        riskLevel: 8,
+        category: 'Existing PassRole',
+        service: 'codebuild',
+        description: 'Can start batch build on existing project with privileged role'
+    },
+    'codebuild-004: PassRole + CreateProject + StartBuildBatch': {
+        permissions: ['iam:passrole', 'codebuild:createproject', 'codebuild:startbuildbatch'],
+        optional: ['iam:listroles', 'codebuild:batchgetbuildbatches'],
+        riskLevel: 9,
+        category: 'New PassRole',
+        service: 'codebuild',
+        description: 'Can create CodeBuild project with privileged role and batch build'
+    },
+
+    // ── ECS ──────────────────────────────────────────────────────────────
+
+    'ecs-001: PassRole + CreateCluster + RegisterTaskDefinition + CreateService': {
+        permissions: ['iam:passrole', 'ecs:createcluster', 'ecs:registertaskdefinition', 'ecs:createservice'],
+        optional: ['ec2:describevpcs', 'ec2:describesubnets'],
+        riskLevel: 9,
+        category: 'New PassRole',
+        service: 'ecs',
+        description: 'Can create ECS cluster and service with privileged task role'
+    },
+    'ecs-002: PassRole + CreateCluster + RegisterTaskDefinition + RunTask': {
+        permissions: ['iam:passrole', 'ecs:createcluster', 'ecs:registertaskdefinition', 'ecs:runtask'],
+        optional: ['ec2:describevpcs', 'ec2:describesubnets'],
+        riskLevel: 9,
+        category: 'New PassRole',
+        service: 'ecs',
+        description: 'Can create ECS cluster and run task with privileged role'
+    },
+    'ecs-003: PassRole + RegisterTaskDefinition + CreateService': {
+        permissions: ['iam:passrole', 'ecs:registertaskdefinition', 'ecs:createservice'],
+        optional: ['ecs:listclusters', 'ec2:describevpcs'],
+        riskLevel: 9,
+        category: 'New PassRole',
+        service: 'ecs',
+        description: 'Can register task definition and create service with privileged role'
+    },
+    'ecs-004: PassRole + RegisterTaskDefinition + RunTask': {
+        permissions: ['iam:passrole', 'ecs:registertaskdefinition', 'ecs:runtask'],
+        optional: ['ecs:listclusters', 'ec2:describevpcs'],
+        riskLevel: 9,
+        category: 'New PassRole',
+        service: 'ecs',
+        description: 'Can register task definition and run task with privileged role'
+    },
+    'ecs-005: PassRole + RegisterTaskDefinition + StartTask': {
+        permissions: ['iam:passrole', 'ecs:registertaskdefinition', 'ecs:starttask'],
+        optional: ['ecs:listclusters', 'ecs:listcontainerinstances'],
+        riskLevel: 9,
+        category: 'New PassRole',
+        service: 'ecs',
+        description: 'Can register task definition and start task on container instance'
+    },
+    'ecs-006: ExecuteCommand + DescribeTasks': {
+        permissions: ['ecs:executecommand', 'ecs:describetasks'],
+        optional: ['ecs:listclusters', 'ecs:listtasks'],
+        riskLevel: 8,
+        category: 'Existing PassRole',
+        service: 'ecs',
+        description: 'Can exec into running ECS container with its attached role'
+    },
+
+    // ── AppRunner ────────────────────────────────────────────────────────
+
+    'apprunner-001: PassRole + CreateService': {
+        permissions: ['iam:passrole', 'apprunner:createservice'],
+        optional: ['iam:listroles', 'iam:getrole'],
+        riskLevel: 9,
+        category: 'New PassRole',
+        service: 'apprunner',
+        description: 'Can create App Runner service with privileged role'
+    },
+    'apprunner-002: UpdateService': {
+        permissions: ['apprunner:updateservice'],
+        optional: ['apprunner:listservices', 'apprunner:describeservice'],
+        riskLevel: 8,
+        category: 'Existing PassRole',
+        service: 'apprunner',
+        description: 'Can modify existing App Runner service to leverage its attached role'
+    },
+
+    // ── SageMaker ────────────────────────────────────────────────────────
+
+    'sagemaker-001: PassRole + CreateNotebookInstance': {
+        permissions: ['iam:passrole', 'sagemaker:createnotebookinstance'],
+        optional: ['iam:listroles', 'sagemaker:describenotebookinstance'],
+        riskLevel: 9,
+        category: 'New PassRole',
+        service: 'sagemaker',
+        description: 'Can create SageMaker notebook with privileged role'
+    },
+    'sagemaker-002: PassRole + CreateTrainingJob': {
+        permissions: ['iam:passrole', 'sagemaker:createtrainingjob'],
+        optional: ['iam:listroles'],
+        riskLevel: 9,
+        category: 'New PassRole',
+        service: 'sagemaker',
+        description: 'Can create SageMaker training job with privileged role'
+    },
+    'sagemaker-003: PassRole + CreateProcessingJob': {
+        permissions: ['iam:passrole', 'sagemaker:createprocessingjob'],
+        optional: ['iam:listroles'],
+        riskLevel: 9,
+        category: 'New PassRole',
+        service: 'sagemaker',
+        description: 'Can create SageMaker processing job with privileged role'
+    },
+    'sagemaker-004: CreatePresignedNotebookInstanceUrl': {
+        permissions: ['sagemaker:createpresignednotebookinstanceurl'],
+        optional: ['sagemaker:listnotebookinstances'],
+        riskLevel: 8,
+        category: 'Existing PassRole',
+        service: 'sagemaker',
+        description: 'Can get presigned URL to existing notebook with privileged role'
+    },
+    'sagemaker-005: LifecycleConfig + Stop/Update/StartNotebook': {
+        permissions: ['sagemaker:createnotebookinstancelifecycleconfig', 'sagemaker:stopnotebookinstance', 'sagemaker:updatenotebookinstance', 'sagemaker:startnotebookinstance'],
+        optional: ['sagemaker:listnotebookinstances', 'sagemaker:describenotebookinstance'],
+        riskLevel: 8,
+        category: 'Existing PassRole',
+        service: 'sagemaker',
+        description: 'Can inject lifecycle config into existing notebook to execute code as its role'
+    },
+
+    // ── SSM (Systems Manager) ────────────────────────────────────────────
+
+    'ssm-001: StartSession': {
+        permissions: ['ssm:startsession'],
+        optional: ['ec2:describeinstances', 'ssm:describeinstanceinformation'],
+        riskLevel: 8,
+        category: 'Existing PassRole',
+        service: 'ssm',
+        description: 'Can start SSM session on EC2 instance with its attached role'
+    },
+    'ssm-002: SendCommand': {
+        permissions: ['ssm:sendcommand'],
+        optional: ['ec2:describeinstances', 'ssm:describeinstanceinformation'],
+        riskLevel: 8,
+        category: 'Existing PassRole',
+        service: 'ssm',
+        description: 'Can send commands to EC2 instances via SSM to access their roles'
+    },
+
+    // ── Bedrock ──────────────────────────────────────────────────────────
+
+    'bedrock-001: PassRole + CreateCodeInterpreter + StartSession': {
+        permissions: ['iam:passrole', 'bedrock-agentcore:createcodeinterpreter', 'bedrock-agentcore:startcodeinterpretersession'],
+        optional: ['bedrock-agentcore:invokecodeinterpreter', 'iam:listroles'],
+        riskLevel: 9,
+        category: 'New PassRole',
+        service: 'bedrock',
+        description: 'Can create Bedrock code interpreter with privileged role'
+    },
+    'bedrock-002: StartCodeInterpreterSession + InvokeCodeInterpreter': {
+        permissions: ['bedrock-agentcore:startcodeinterpretersession', 'bedrock-agentcore:invokecodeinterpreter'],
+        optional: ['bedrock-agentcore:listcodeinterpreters'],
+        riskLevel: 8,
+        category: 'Existing PassRole',
+        service: 'bedrock',
+        description: 'Can invoke existing Bedrock code interpreter to access its role'
+    },
+
+    // ── CodeStar (Pacu legacy, not in pathfinding.cloud) ─────────────────
+
     'PassRoleToCodeStar': {
         permissions: ['iam:passrole', 'codestar:createproject'],
         optional: [],
         riskLevel: 7,
-        category: 'PassRole Escalation',
+        category: 'New PassRole',
+        service: 'codestar',
         description: 'Can create CodeStar project with privileged role'
     },
-    
-    // CodeStar Special
     'CodeStarCreateProjectFromTemplate': {
         permissions: ['codestar:createprojectfromtemplate'],
         optional: [],
         riskLevel: 7,
-        category: 'Special Methods',
+        category: 'Existing PassRole',
+        service: 'codestar',
         description: 'Undocumented CodeStar API providing elevated permissions'
     },
     'CodeStarAssociateTeamMember': {
         permissions: ['codestar:createproject', 'codestar:associateteammember'],
         optional: [],
         riskLevel: 7,
-        category: 'Special Methods',
+        category: 'Existing PassRole',
+        service: 'codestar',
         description: 'Can gain enumeration permissions through CodeStar Owner role'
     }
 };
@@ -696,22 +1139,38 @@ const ESCALATION_METHODS = {
 /**
  * Analyze policy document for shadow admin and privilege escalation issues
  */
+/**
+ * Check if an action pattern (which may contain wildcards) matches a specific permission.
+ */
+function actionPatternMatches(pattern, permission) {
+    if (pattern === '*') return true;
+    if (pattern === permission) return true;
+    if (!pattern.includes('*')) return false;
+    const regexStr = pattern.replace(/\*/g, '.*');
+    const regex = new RegExp(`^${regexStr}$`, 'i');
+    return regex.test(permission);
+}
+
+/**
+ * Analyze policy document for shadow admin and privilege escalation issues.
+ * Checks against all entries in ESCALATION_METHODS (pathfinding.cloud catalog).
+ */
 const analyzePolicyForShadowAdmin = (policyDocument) => {
+    const totalKnownPaths = Object.keys(ESCALATION_METHODS).length;
     const issues = [];
     const detectedMethods = [];
     let maxRiskLevel = 0;
     
     if (!policyDocument || !policyDocument.Statement) {
-        return { issues, riskLevel: 0, detectedMethods, summary: 'No policy statements found' };
+        return { issues, riskLevel: 0, detectedMethods, summary: 'No policy statements found', totalKnownPaths };
     }
     
     const statements = Array.isArray(policyDocument.Statement) 
         ? policyDocument.Statement 
         : [policyDocument.Statement];
     
-    // Collect all permissions
-    const allowedPermissions = new Set();
-    const deniedPermissions = new Set();
+    const allowedPatterns = [];
+    const deniedPatterns = [];
     let hasWildcardAction = false;
     let hasWildcardResource = false;
     
@@ -720,7 +1179,6 @@ const analyzePolicyForShadowAdmin = (policyDocument) => {
         const actions = statement.Action ? (Array.isArray(statement.Action) ? statement.Action : [statement.Action]) : [];
         const resources = statement.Resource ? (Array.isArray(statement.Resource) ? statement.Resource : [statement.Resource]) : [];
         
-        // Check for wildcards
         if (actions.includes('*')) {
             hasWildcardAction = true;
             if (resources.includes('*') && effect === 'Allow') {
@@ -740,43 +1198,16 @@ const analyzePolicyForShadowAdmin = (policyDocument) => {
             hasWildcardResource = true;
         }
         
-        // Collect permissions
         actions.forEach(action => {
-            const normalizedAction = action.toLowerCase().replace(/\s/g, '');
+            const normalized = action.toLowerCase().replace(/\s/g, '');
             if (effect === 'Allow') {
-                allowedPermissions.add(normalizedAction);
-                
-                // Handle wildcards in actions
-                if (action.includes('*')) {
-                    // iam:* grants all IAM permissions
-                    if (normalizedAction === 'iam:*') {
-                        Object.keys(ESCALATION_METHODS).forEach(method => {
-                            ESCALATION_METHODS[method].permissions.forEach(perm => {
-                                if (perm.startsWith('iam:')) {
-                                    allowedPermissions.add(perm);
-                                }
-                            });
-                        });
-                    }
-                    // Handle service-level wildcards
-                    const servicePart = normalizedAction.split(':')[0];
-                    if (servicePart && normalizedAction.endsWith(':*')) {
-                        Object.keys(ESCALATION_METHODS).forEach(method => {
-                            ESCALATION_METHODS[method].permissions.forEach(perm => {
-                                if (perm.startsWith(servicePart + ':')) {
-                                    allowedPermissions.add(perm);
-                                }
-                            });
-                        });
-                    }
-                }
+                allowedPatterns.push(normalized);
             } else if (effect === 'Deny') {
-                deniedPermissions.add(normalizedAction);
+                deniedPatterns.push(normalized);
             }
         });
     });
     
-    // Check for wildcard issues
     if (hasWildcardAction && !issues.some(i => i.type === 'FULL_ADMIN')) {
         issues.push({
             type: 'WILDCARD_ACTION',
@@ -801,24 +1232,17 @@ const analyzePolicyForShadowAdmin = (policyDocument) => {
         maxRiskLevel = Math.max(maxRiskLevel, 6);
     }
     
-    // Check for privilege escalation methods
+    // Check each escalation method
     Object.entries(ESCALATION_METHODS).forEach(([methodName, methodInfo]) => {
         const requiredPerms = methodInfo.permissions.map(p => p.toLowerCase());
-        const hasAllRequired = requiredPerms.every(perm => {
-            // Check if permission is explicitly allowed
-            if (allowedPermissions.has(perm)) return true;
-            
-            // Check if wildcard grants it
-            if (allowedPermissions.has('*')) return true;
-            
-            // Check if service wildcard grants it
-            const service = perm.split(':')[0];
-            if (allowedPermissions.has(service + ':*')) return true;
-            
-            return false;
-        });
-        
-        const hasAnyDenied = requiredPerms.some(perm => deniedPermissions.has(perm));
+
+        const hasAllRequired = requiredPerms.every(perm =>
+            allowedPatterns.some(pat => actionPatternMatches(pat, perm))
+        );
+
+        const hasAnyDenied = requiredPerms.some(perm =>
+            deniedPatterns.some(pat => actionPatternMatches(pat, perm))
+        );
         
         if (hasAllRequired && !hasAnyDenied) {
             detectedMethods.push({
@@ -833,6 +1257,7 @@ const analyzePolicyForShadowAdmin = (policyDocument) => {
                 title: `Privilege Escalation: ${methodName}`,
                 description: methodInfo.description,
                 category: methodInfo.category,
+                service: methodInfo.service,
                 remediation: `Remove or restrict: ${requiredPerms.join(', ')}`
             });
             
@@ -840,12 +1265,11 @@ const analyzePolicyForShadowAdmin = (policyDocument) => {
         }
     });
     
-    // Generate summary
     let summary = '';
     if (maxRiskLevel === 10) {
         summary = 'CRITICAL: Full admin or direct privilege escalation possible';
     } else if (maxRiskLevel >= 8) {
-        summary = `HIGH RISK: ${detectedMethods.length} privilege escalation method(s) detected`;
+        summary = `HIGH RISK: ${detectedMethods.length} privilege escalation path(s) detected`;
     } else if (maxRiskLevel >= 5) {
         summary = 'MEDIUM RISK: Some dangerous permissions present';
     } else if (issues.length > 0) {
@@ -859,12 +1283,14 @@ const analyzePolicyForShadowAdmin = (policyDocument) => {
         riskLevel: maxRiskLevel,
         detectedMethods,
         summary,
+        totalKnownPaths,
         stats: {
             totalIssues: issues.length,
             criticalIssues: issues.filter(i => i.severity === 'critical').length,
             highIssues: issues.filter(i => i.severity === 'high').length,
             mediumIssues: issues.filter(i => i.severity === 'medium').length,
-            escalationMethods: detectedMethods.length
+            escalationMethods: detectedMethods.length,
+            totalKnownPaths
         }
     };
 };

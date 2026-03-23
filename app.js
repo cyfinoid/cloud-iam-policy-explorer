@@ -591,14 +591,11 @@ class App {
         }
 
         try {
-            // Get the policy document
-            const policyDocument = this.currentPolicy.Document;
+            const policyDocument = this.currentPolicy.currentVersion.Document;
 
-            // Analyze expansion
             const analysisResult = this.policyExpansion.analyzePolicy(policyDocument);
 
-            // Render the analysis
-            PolicyVisualizer.renderPolicyExpansion(analysisResult, expansionContent);
+            SecurityVisualizer.renderPolicyExpansion(analysisResult, expansionContent);
 
         } catch (error) {
             console.error('Error analyzing policy expansion:', error);

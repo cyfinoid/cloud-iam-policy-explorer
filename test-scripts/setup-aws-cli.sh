@@ -2,38 +2,36 @@
 
 ###############################################################################
 # AWS CLI Setup with uv
-# 
-# This script installs AWS CLI using uv in the project directory,
-# keeping your base Python installation clean.
+#
+# Installs AWS CLI using uv in the project .venv directory.
 ###############################################################################
 
 set -e
 
-# Colors
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m'
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
 echo -e "${GREEN}Setting up AWS CLI with uv...${NC}"
 echo ""
 
-# Check if uv is installed
 if ! command -v uv &> /dev/null; then
     echo -e "${RED}Error: uv is not installed${NC}"
     echo ""
     echo "Install uv with:"
     echo "  curl -LsSf https://astral.sh/uv/install.sh | sh"
-    echo ""
-    echo "Or on macOS:"
-    echo "  brew install uv"
-    echo ""
+    echo "  Or: brew install uv"
     exit 1
 fi
 
 echo -e "${GREEN}✓ uv found${NC}"
 
-# Create virtual environment with uv if it doesn't exist
+cd "$PROJECT_ROOT"
+
 if [ ! -d ".venv" ]; then
     echo "Creating virtual environment..."
     uv venv
@@ -42,17 +40,12 @@ else
     echo -e "${GREEN}✓ Virtual environment already exists${NC}"
 fi
 
-# Install AWS CLI via uv
 echo "Installing AWS CLI..."
 uv pip install awscli
 
 echo ""
 echo -e "${GREEN}✓ AWS CLI installed successfully!${NC}"
 echo ""
-echo "To use AWS CLI, activate the virtual environment:"
-echo -e "${YELLOW}  source .venv/bin/activate${NC}"
+echo "Activate: source .venv/bin/activate"
+echo "Or use:   .venv/bin/aws --version"
 echo ""
-echo "Or use it directly:"
-echo -e "${YELLOW}  .venv/bin/aws --version${NC}"
-echo ""
-

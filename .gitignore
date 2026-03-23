@@ -16,6 +16,7 @@ Thumbs.db
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+logs-accounts.txt
 
 # Temporary files
 *.tmp
@@ -36,22 +37,17 @@ secrets/
 venv/
 .python-version
 
-# Build artifacts (if someone tries to bundle)
+# Build artifacts
 node_modules/
 package-lock.json
+yarn.lock
 *.bundle.js
 *-standalone.html
 dist/
 build/
 
-# Node modules (if using any build tools in future)
-node_modules/
-package-lock.json
-yarn.lock
-
+# Non-app directories
 sample/
-
 docs
-
-logs-accounts.txt
-
+junk/
+projects/

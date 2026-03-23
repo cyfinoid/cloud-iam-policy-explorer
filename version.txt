@@ -1,6 +1,7 @@
-1.2
+1.5
 
 Version History:
+- 1.5: Enhanced expansion analysis (bigorange-style wildcard expansion, NotAction complement, per-resource effective permissions), expanded shadow admin detection to 66 privilege escalation paths (pathfinding.cloud catalog)
 - 1.2: Official release with GPL v3 license
 - 1.1.1: Improved diff styling (removed strikethrough, added +/− indicators, better readability)
 - 1.1.0: Added version comparison feature, fixed checkbox overlap, added cache-busting
@@ -9,8 +10,8 @@ Version History:
 To update cache-busting version:
 1. Increment version in this file
 2. Update ?v= parameter in index.html for all local files:
-   - styles.css?v=X.X.X
-   - aws-handler.js?v=X.X.X
-   - policy-visualizer.js?v=X.X.X
-   - app.js?v=X.X.X
-
+   - styles.css?v=X.X
+   - policy-visualizer.js?v=X.X
+   - policy-expansion.js?v=X.X
+   - aws-handler.js?v=X.X
+   - app.js?v=X.X

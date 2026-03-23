@@ -28,6 +28,7 @@ jobs:
     - name: Create deployment directory
       run: mkdir -p deploy
     
+    # Only copy listed runtime + README. Do not add AGENTS.md (repo contributor guide only).
     - name: Copy web files
       run: |
         cp index.html deploy/
@@ -39,14 +40,23 @@ jobs:
         echo "Copying documentation..."
         cp README.md deploy/
         cp -r docs deploy/ 2>/dev/null || echo "No docs directory"
-        # Create .nojekyll to prevent GitHub Pages from processing files
         touch deploy/.nojekyll
-        # List deployed files for verification
         echo "Files prepared for deployment:"
         ls -lah deploy/
-        # Show file count
         echo "Total files to deploy:"
         find deploy -type f | wc -l
+
+    - name: Verify deployed files
+      run: |
+        echo "Verifying deployed files are non-empty..."
+        for f in index.html styles.css aws-handler.js policy-visualizer.js policy-expansion.js app.js; do
+          if [ ! -s "deploy/$f" ]; then
+            echo "✗ deploy/$f is missing or empty"
+            exit 1
+          fi
+          echo "✓ deploy/$f ($(wc -c < "deploy/$f") bytes)"
+        done
+        echo "✅ All deployed files verified"
     
     - name: Setup Pages
       uses: actions/configure-pages@v4

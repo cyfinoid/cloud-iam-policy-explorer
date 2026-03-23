@@ -4,11 +4,12 @@
 
 A client-side web application for exploring and analyzing AWS IAM policies with automated shadow admin detection. Built for security professionals to identify privilege escalation paths and assess IAM policy risks in real-time.
 
-The tool features automated detection of 23+ privilege escalation methods, side-by-side policy version comparison, and visual risk scoring. All analysis happens directly in your browser - AWS credentials never leave your machine and are not stored anywhere.
+The tool features automated detection of 70+ privilege escalation methods across 14 AWS services, IAM action wildcard expansion with effective-permission analysis, side-by-side policy version comparison, and visual risk scoring. All analysis happens directly in your browser - AWS credentials never leave your machine and are not stored anywhere.
 
 ## Credits
 
-Shadow admin detection logic is based on research from the [**Pacu**](https://github.com/RhinoSecurityLabs/pacu) framework by Rhino Security Labs, specifically the `iam__privesc_scan` module by Spencer Gietzen.
+- **Shadow admin / privilege-escalation detection** is based on research from the [**Pacu**](https://github.com/RhinoSecurityLabs/pacu) framework by Rhino Security Labs (Spencer Gietzen's `iam__privesc_scan` module) and the [**IAM Vulnerable Pathfinding**](https://github.com/DataDog/IAM-Vulnerable-Pathfinding) catalog by **Datadog**, which maps 66 privilege-escalation paths across IAM, STS, Lambda, EC2, ECS, CloudFormation, Glue, CodeBuild, SageMaker, SSM, AppRunner, Bedrock, and DataPipeline.
+- **IAM action wildcard expansion** draws inspiration from [**BigOrange Cloud Actions**](https://github.com/bigorange-cloud/aws-iam-actions) by **BigOrange**, which maintains a comprehensive catalog of AWS IAM actions used to resolve `*` and partial wildcards into concrete permissions.
 
 ## 🤖 AI-Assisted Development
 

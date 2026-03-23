@@ -581,9 +581,9 @@ class SecurityVisualizer {
             containerElement.appendChild(statsSection);
         }
 
-        // Detected escalation methods
+        // Detected escalation methods grouped by category/service
         if (analysis.detectedMethods && analysis.detectedMethods.length > 0) {
-            const methodsSection = this.createEscalationMethodsSection(analysis.detectedMethods);
+            const methodsSection = this.createEscalationMethodsSection(analysis.detectedMethods, analysis.totalKnownPaths);
             containerElement.appendChild(methodsSection);
         }
 
@@ -595,7 +595,8 @@ class SecurityVisualizer {
 
         // No issues message
         if (!analysis.issues || analysis.issues.length === 0) {
-            containerElement.innerHTML += '<p class="security-safe-message">✓ No security issues detected in this policy</p>';
+            const totalPaths = analysis.totalKnownPaths || Object.keys(typeof ESCALATION_METHODS !== 'undefined' ? ESCALATION_METHODS : {}).length;
+            containerElement.innerHTML += `<p class="security-safe-message">✓ No security issues detected (checked ${totalPaths} known escalation paths)</p>`;
         }
     }
 
@@ -681,43 +682,84 @@ class SecurityVisualizer {
     }
 
     /**
-     * Create escalation methods section
+     * Create escalation methods section, grouped by category then service
      */
-    static createEscalationMethodsSection(methods) {
+    static createEscalationMethodsSection(methods, totalKnownPaths) {
         const section = document.createElement('div');
         section.className = 'escalation-methods-section';
 
         const header = document.createElement('h4');
         header.className = 'section-header';
-        header.textContent = 'Detected Privilege Escalation Methods';
+        header.textContent = `Detected Privilege Escalation Paths (${methods.length} of ${totalKnownPaths || '?'} checked)`;
         section.appendChild(header);
 
-        const methodsList = document.createElement('div');
-        methodsList.className = 'escalation-methods-list';
-
-        methods.forEach(method => {
-            const methodCard = document.createElement('div');
-            methodCard.className = 'escalation-method-card';
-            
-            const severityClass = method.riskLevel >= 9 ? 'severity-critical' : 
-                                 method.riskLevel >= 7 ? 'severity-high' : 'severity-medium';
-
-            methodCard.innerHTML = `
-                <div class="method-header">
-                    <span class="method-name">${this.escapeHtml(method.method)}</span>
-                    <span class="method-severity ${severityClass}">${method.riskLevel}/10</span>
-                </div>
-                <div class="method-category">${this.escapeHtml(method.category)}</div>
-                <div class="method-description">${this.escapeHtml(method.description)}</div>
-                <div class="method-permissions">
-                    <strong>Required:</strong> ${method.permissions.map(p => `<code>${this.escapeHtml(p)}</code>`).join(', ')}
-                </div>
-            `;
-
-            methodsList.appendChild(methodCard);
+        // Group by category
+        const byCategory = {};
+        methods.forEach(m => {
+            const cat = m.category || 'Other';
+            if (!byCategory[cat]) byCategory[cat] = [];
+            byCategory[cat].push(m);
         });
 
-        section.appendChild(methodsList);
+        const categoryOrder = ['Self-Escalation', 'Principal Access', 'New PassRole', 'Existing PassRole', 'Other'];
+        const sortedCategories = Object.keys(byCategory).sort((a, b) => {
+            const ai = categoryOrder.indexOf(a);
+            const bi = categoryOrder.indexOf(b);
+            return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+        });
+
+        for (const category of sortedCategories) {
+            const catMethods = byCategory[category];
+
+            const catHeader = document.createElement('div');
+            catHeader.className = 'escalation-category-header';
+            catHeader.innerHTML = `<span class="category-label">${this.escapeHtml(category)}</span> <span class="category-count">(${catMethods.length})</span>`;
+            section.appendChild(catHeader);
+
+            // Group within category by service
+            const byService = {};
+            catMethods.forEach(m => {
+                const svc = m.service || 'unknown';
+                if (!byService[svc]) byService[svc] = [];
+                byService[svc].push(m);
+            });
+
+            const methodsList = document.createElement('div');
+            methodsList.className = 'escalation-methods-list';
+
+            for (const [svc, svcMethods] of Object.entries(byService).sort()) {
+                for (const method of svcMethods) {
+                    const methodCard = document.createElement('div');
+                    methodCard.className = 'escalation-method-card';
+
+                    const severityClass = method.riskLevel >= 9 ? 'severity-critical' :
+                                         method.riskLevel >= 7 ? 'severity-high' : 'severity-medium';
+
+                    methodCard.innerHTML = `
+                        <div class="method-header">
+                            <span class="method-name">${this.escapeHtml(method.method)}</span>
+                            <span class="method-severity ${severityClass}">${method.riskLevel}/10</span>
+                        </div>
+                        <div class="method-meta">
+                            <span class="method-service-badge">${this.escapeHtml(svc)}</span>
+                            <span class="method-category">${this.escapeHtml(method.category)}</span>
+                        </div>
+                        <div class="method-description">${this.escapeHtml(method.description)}</div>
+                        <div class="method-permissions">
+                            <strong>Required:</strong> ${method.permissions.map(p => `<code>${this.escapeHtml(p)}</code>`).join(', ')}
+                        </div>
+                        <div class="method-remediation">
+                            <strong>Remediation:</strong> Remove or restrict: ${method.permissions.map(p => `<code>${this.escapeHtml(p)}</code>`).join(', ')}
+                        </div>
+                    `;
+
+                    methodsList.appendChild(methodCard);
+                }
+            }
+
+            section.appendChild(methodsList);
+        }
+
         return section;
     }
 
@@ -806,7 +848,7 @@ class SecurityVisualizer {
     }
 
     /**
-     * Render policy expansion analysis
+     * Render policy expansion analysis with per-resource effective permissions
      */
     static renderPolicyExpansion(analysisResult, containerElement) {
         containerElement.innerHTML = '';
@@ -819,9 +861,14 @@ class SecurityVisualizer {
         const expansionContainer = document.createElement('div');
         expansionContainer.className = 'expansion-analysis';
 
-        // Overall impact summary
         const summaryCard = this.createExpansionSummary(analysisResult);
         expansionContainer.appendChild(summaryCard);
+
+        // Per-resource effective permissions (bigorange-style)
+        if (analysisResult.effectivePermissions) {
+            const effectiveSection = this.createEffectivePermissionsSection(analysisResult.effectivePermissions);
+            expansionContainer.appendChild(effectiveSection);
+        }
 
         // Statement-by-statement breakdown
         if (analysisResult.statements && analysisResult.statements.length > 0) {
@@ -837,6 +884,7 @@ class SecurityVisualizer {
      */
     static createExpansionSummary(analysisResult) {
         const summary = analysisResult.summary;
+        const effectiveCount = summary.totalEffectiveActions || summary.totalExpandedActions;
         const impactLevel = this.getExpansionImpactLevel(summary.expansionRatio);
 
         const card = document.createElement('div');
@@ -844,7 +892,7 @@ class SecurityVisualizer {
 
         card.innerHTML = `
             <div class="expansion-summary-header">
-                <h3 class="section-header">🔍 Permission Expansion Analysis</h3>
+                <h3 class="section-header">Permission Expansion Analysis</h3>
                 <div class="impact-badge">${this.getExpansionImpactDescription(impactLevel)}</div>
             </div>
 
@@ -854,8 +902,8 @@ class SecurityVisualizer {
                     <div class="stat-label">Total Patterns</div>
                 </div>
                 <div class="stat-item">
-                    <div class="stat-value">${summary.totalExpandedActions}</div>
-                    <div class="stat-label">Expanded Actions</div>
+                    <div class="stat-value">${effectiveCount}</div>
+                    <div class="stat-label">Effective Actions</div>
                 </div>
                 <div class="stat-item">
                     <div class="stat-value">${summary.expansionRatio.toFixed(1)}x</div>
@@ -883,6 +931,76 @@ class SecurityVisualizer {
     }
 
     /**
+     * Create per-resource effective permissions section (bigorange-style)
+     */
+    static createEffectivePermissionsSection(effectivePermissions) {
+        const section = document.createElement('div');
+        section.className = 'effective-permissions-section';
+
+        const header = document.createElement('h4');
+        header.className = 'section-header';
+        header.textContent = 'Effective Permissions by Resource';
+        section.appendChild(header);
+
+        for (const [resource, actions] of Object.entries(effectivePermissions)) {
+            if (actions.length === 0) continue;
+
+            const resourceCard = document.createElement('div');
+            resourceCard.className = 'resource-permissions-card';
+
+            const serviceGroups = PolicyExpansion.groupByService(actions);
+            const serviceChips = serviceGroups.map(g =>
+                `<span class="service-chip">${this.escapeHtml(g.prefix)} (${g.count})</span>`
+            ).join(' ');
+
+            resourceCard.innerHTML = `
+                <div class="resource-header">
+                    <div class="resource-name">Policy allows <strong>${actions.length}</strong> actions on <code>${this.escapeHtml(resource)}</code></div>
+                </div>
+                <div class="service-chips">${serviceChips}</div>
+            `;
+
+            // Collapsible action list grouped by service
+            const actionList = document.createElement('div');
+            actionList.className = 'action-list-collapsible';
+            actionList.style.display = 'none';
+
+            for (const group of serviceGroups) {
+                const groupDiv = document.createElement('div');
+                groupDiv.className = 'service-action-group';
+                groupDiv.innerHTML = `<div class="service-group-header">${this.escapeHtml(group.prefix)} (${group.count} actions)</div>`;
+                const list = document.createElement('div');
+                list.className = 'action-items';
+                for (const action of group.actions) {
+                    const item = document.createElement('div');
+                    item.className = 'action-item';
+                    item.textContent = action;
+                    list.appendChild(item);
+                }
+                groupDiv.appendChild(list);
+                actionList.appendChild(groupDiv);
+            }
+
+            resourceCard.appendChild(actionList);
+
+            // Toggle button
+            const toggleBtn = document.createElement('button');
+            toggleBtn.className = 'btn btn-sm btn-secondary expand-actions-btn';
+            toggleBtn.textContent = 'Show all actions';
+            toggleBtn.addEventListener('click', () => {
+                const isHidden = actionList.style.display === 'none';
+                actionList.style.display = isHidden ? 'block' : 'none';
+                toggleBtn.textContent = isHidden ? 'Hide actions' : 'Show all actions';
+            });
+            resourceCard.insertBefore(toggleBtn, actionList);
+
+            section.appendChild(resourceCard);
+        }
+
+        return section;
+    }
+
+    /**
      * Create statement-by-statement expansion breakdown
      */
     static createExpansionStatements(statements) {
@@ -891,7 +1009,7 @@ class SecurityVisualizer {
 
         const header = document.createElement('h4');
         header.className = 'section-header';
-        header.textContent = 'Statement Analysis';
+        header.textContent = 'Statement-by-Statement Analysis';
         section.appendChild(header);
 
         statements.forEach(statement => {
@@ -913,6 +1031,7 @@ class SecurityVisualizer {
             <div class="statement-header">
                 <span class="statement-title">Statement ${statement.index}</span>
                 <span class="statement-effect effect-${statement.effect.toLowerCase()}">${statement.effect}</span>
+                ${statement.isNotAction ? '<span class="not-action-badge">NotAction</span>' : ''}
             </div>
             <div class="statement-stats">
                 <span class="stat">${statement.patterns.length} patterns</span>
@@ -926,14 +1045,14 @@ class SecurityVisualizer {
 
             statement.expansions.forEach(expansion => {
                 const patternClass = expansion.hasWildcard ? 'pattern-wildcard' : 'pattern-exact';
-                const typeIcon = expansion.hasWildcard ? '🔸' : '🔹';
+                const typeLabel = expansion.isNotAction ? 'COMPLEMENT' : (expansion.hasWildcard ? 'WILDCARD' : 'EXACT');
                 const sampleText = expansion.sampleActions.slice(0, 3).join(', ') +
                     (expansion.expandedCount > 3 ? ` ... +${expansion.expandedCount - 3} more` : '');
 
                 html += `
                     <div class="pattern-expansion ${patternClass}">
                         <div class="pattern-header">
-                            <span class="pattern-type">${typeIcon}</span>
+                            <span class="pattern-type-label">${typeLabel}</span>
                             <code class="pattern-text">${this.escapeHtml(expansion.originalPattern)}</code>
                             <span class="pattern-count">${expansion.expandedCount} actions</span>
                         </div>

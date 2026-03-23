@@ -1,9 +1,10 @@
 /**
  * Policy Expansion Module
- * Analyzes IAM policy wildcards and shows their real impact using official AWS data
+ * Analyzes IAM policy wildcards and shows their real impact using official AWS data.
+ * Implements bigorange-style expansion: regex wildcard matching, proper NotAction
+ * complement, per-resource grouping, and cross-statement Allow/Deny merging.
  */
 
-// Create global app object for AWS policies script compatibility
 window.app = window.app || {};
 
 class PolicyExpansion {
@@ -13,9 +14,6 @@ class PolicyExpansion {
         this.isInitialized = false;
     }
 
-    /**
-     * Initialize by loading AWS IAM data
-     */
     async initialize() {
         if (this.isInitialized) return;
 
@@ -23,26 +21,21 @@ class PolicyExpansion {
             await this.loadAWSData();
             this.buildActionsIndex();
             this.isInitialized = true;
-            console.log(`✅ Policy Expansion initialized: ${Object.keys(this.awsData.serviceMap).length} services, ${this.allActions.length} actions`);
+            console.log(`Policy Expansion initialized: ${Object.keys(this.awsData.serviceMap).length} services, ${this.allActions.length} actions`);
         } catch (error) {
-            console.error('❌ Failed to initialize Policy Expansion:', error);
+            console.error('Failed to initialize Policy Expansion:', error);
             throw error;
         }
     }
 
-    /**
-     * Load AWS IAM policies data from official source
-     */
     async loadAWSData() {
         return new Promise((resolve, reject) => {
-            // Check if already loaded
             if (window.app && window.app.PolicyEditorConfig) {
                 this.awsData = window.app.PolicyEditorConfig;
                 resolve();
                 return;
             }
 
-            // Load the AWS policies script
             const script = document.createElement('script');
             script.src = 'https://awspolicygen.s3.amazonaws.com/js/policies.js';
             script.onload = () => {
@@ -61,21 +54,75 @@ class PolicyExpansion {
         });
     }
 
-    /**
-     * Build index of all AWS actions for fast lookup
-     */
     buildActionsIndex() {
         this.allActions = [];
-        for (const [serviceName, serviceData] of Object.entries(this.awsData.serviceMap)) {
+        for (const [, serviceData] of Object.entries(this.awsData.serviceMap)) {
             const prefix = serviceData.StringPrefix;
             for (const action of serviceData.Actions) {
                 this.allActions.push(`${prefix}:${action}`);
             }
         }
+        this.allActions.sort();
     }
 
     /**
-     * Analyze policy for wildcard expansion impact
+     * Expand a wildcard pattern against the full action catalog.
+     * Returns matching action strings (sorted, unique).
+     */
+    expandWildcard(pattern) {
+        if (!pattern.includes('*')) {
+            return [pattern];
+        }
+        const regexStr = pattern.replace(/\*/g, '.*');
+        const regex = new RegExp(`^${regexStr}$`, 'i');
+        const matched = this.allActions.filter(a => regex.test(a));
+        return matched.length > 0 ? matched : [pattern];
+    }
+
+    /**
+     * Expand Action list: union of all matching actions for each pattern.
+     */
+    expandActions(patterns) {
+        const result = new Set();
+        for (const p of patterns) {
+            for (const a of this.expandWildcard(p)) {
+                result.add(a);
+            }
+        }
+        return Array.from(result).sort();
+    }
+
+    /**
+     * Expand NotAction list: complement — all known actions that do NOT match
+     * any of the given patterns (correct IAM semantics).
+     */
+    expandNotActions(patterns) {
+        const regexes = patterns.map(p => {
+            const regexStr = p.replace(/\*/g, '.*');
+            return new RegExp(`^${regexStr}$`, 'i');
+        });
+        const result = this.allActions.filter(action =>
+            !regexes.some(rx => rx.test(action))
+        );
+        return result.length > 0 ? result : [];
+    }
+
+    /**
+     * Normalize an array-or-string field to an array.
+     */
+    static toArray(val) {
+        if (!val) return [];
+        return Array.isArray(val) ? val : [val];
+    }
+
+    /**
+     * Compute effective permissions per resource, merging Allow/Deny across statements.
+     *
+     * Per resource key:
+     *   - Allow statements union their expanded actions into the set.
+     *   - Deny statements subtract their expanded actions from the set.
+     *
+     * Returns { resources: { [resourceArn]: string[] }, statementsDetail: [...] }
      */
     analyzePolicy(policyDocument) {
         if (!this.isInitialized) {
@@ -91,10 +138,12 @@ class PolicyExpansion {
                 wildcardPatterns: 0,
                 exactPatterns: 0,
                 totalExpandedActions: 0,
+                totalEffectiveActions: 0,
                 expansionRatio: 0,
                 servicesAffected: new Set()
             },
-            statements: []
+            statements: [],
+            effectivePermissions: {}
         };
 
         if (!policyDocument || !policyDocument.Statement) {
@@ -109,20 +158,55 @@ class PolicyExpansion {
 
         result.summary.totalStatements = statements.length;
 
+        // Per-resource effective action sets: Map<string, Set<string>>
+        const effective = {};
+
         statements.forEach((statement, index) => {
-            const statementAnalysis = this.analyzeStatement(statement, index);
-            result.statements.push(statementAnalysis);
+            const detail = this.analyzeStatement(statement, index);
+            result.statements.push(detail);
 
-            // Aggregate summary data
-            result.summary.totalPatterns += statementAnalysis.patterns.length;
-            result.summary.wildcardPatterns += statementAnalysis.wildcardPatterns;
-            result.summary.exactPatterns += statementAnalysis.exactPatterns;
-            result.summary.totalExpandedActions += statementAnalysis.totalExpandedActions;
+            result.summary.totalPatterns += detail.patterns.length;
+            result.summary.wildcardPatterns += detail.wildcardPatterns;
+            result.summary.exactPatterns += detail.exactPatterns;
+            result.summary.totalExpandedActions += detail.totalExpandedActions;
 
-            statementAnalysis.servicesAffected.forEach(service => {
-                result.summary.servicesAffected.add(service);
-            });
+            detail.servicesAffected.forEach(s => result.summary.servicesAffected.add(s));
+
+            // Merge into per-resource effective set
+            const resources = PolicyExpansion.toArray(statement.Resource)
+                .concat(PolicyExpansion.toArray(statement.NotResource).length > 0 && !statement.Resource ? ['*'] : []);
+            if (resources.length === 0) resources.push('*');
+
+            const effect = (statement.Effect || 'Allow').toLowerCase();
+
+            for (const resource of resources) {
+                if (!effective[resource]) {
+                    effective[resource] = new Set();
+                }
+
+                if (effect === 'allow') {
+                    for (const action of detail.expandedActions) {
+                        effective[resource].add(action);
+                    }
+                } else if (effect === 'deny') {
+                    for (const action of detail.expandedActions) {
+                        effective[resource].delete(action);
+                    }
+                }
+            }
         });
+
+        // Convert effective sets to sorted arrays and compute services
+        const allEffectiveServices = new Set();
+        for (const [resource, actionSet] of Object.entries(effective)) {
+            const sorted = Array.from(actionSet).sort();
+            result.effectivePermissions[resource] = sorted;
+            sorted.forEach(a => {
+                const svc = a.split(':')[0];
+                allEffectiveServices.add(svc);
+            });
+            result.summary.totalEffectiveActions += sorted.length;
+        }
 
         result.summary.servicesAffected = Array.from(result.summary.servicesAffected).sort();
         result.summary.expansionRatio = result.summary.totalPatterns > 0 ?
@@ -132,7 +216,7 @@ class PolicyExpansion {
     }
 
     /**
-     * Analyze a single policy statement
+     * Analyze a single statement. Returns expanded actions for that statement.
      */
     analyzeStatement(statement, index) {
         const analysis = {
@@ -143,119 +227,107 @@ class PolicyExpansion {
             exactPatterns: 0,
             totalExpandedActions: 0,
             servicesAffected: new Set(),
-            expansions: []
+            expandedActions: [],
+            expansions: [],
+            resources: PolicyExpansion.toArray(statement.Resource),
+            isNotAction: false
         };
 
-        // Analyze Actions
+        let expanded;
+
         if (statement.Action) {
-            const actions = Array.isArray(statement.Action) ? statement.Action : [statement.Action];
-            analysis.patterns.push(...actions);
+            const actions = PolicyExpansion.toArray(statement.Action);
+            analysis.patterns = actions;
+            expanded = this.expandActions(actions);
+            analysis.isNotAction = false;
+        } else if (statement.NotAction) {
+            const notActions = PolicyExpansion.toArray(statement.NotAction);
+            analysis.patterns = notActions.map(a => `NOT:${a}`);
+            expanded = this.expandNotActions(notActions);
+            analysis.isNotAction = true;
+        } else {
+            expanded = [];
         }
 
-        // Analyze NotAction (inverted logic)
-        if (statement.NotAction) {
-            const notActions = Array.isArray(statement.NotAction) ? statement.NotAction : [statement.NotAction];
-            analysis.patterns.push(...notActions.map(action => `NOT:${action}`));
-        }
+        analysis.expandedActions = expanded;
+        analysis.totalExpandedActions = expanded.length;
 
-        // Expand each pattern
-        analysis.patterns.forEach(pattern => {
-            const expansion = this.expandPattern(pattern);
-            analysis.expansions.push(expansion);
-
-            if (expansion.hasWildcard) {
-                analysis.wildcardPatterns++;
-            } else {
-                analysis.exactPatterns++;
+        // Build per-pattern expansion detail for the UI
+        if (statement.Action) {
+            const actions = PolicyExpansion.toArray(statement.Action);
+            for (const pattern of actions) {
+                const exp = this.buildExpansionDetail(pattern, false);
+                analysis.expansions.push(exp);
+                if (exp.hasWildcard) analysis.wildcardPatterns++;
+                else analysis.exactPatterns++;
             }
+        } else if (statement.NotAction) {
+            const notActions = PolicyExpansion.toArray(statement.NotAction);
+            for (const pattern of notActions) {
+                const exp = this.buildExpansionDetail(pattern, true);
+                analysis.expansions.push(exp);
+                if (exp.hasWildcard) analysis.wildcardPatterns++;
+                else analysis.exactPatterns++;
+            }
+        }
 
-            analysis.totalExpandedActions += expansion.expandedCount;
-
-            // Track services affected
-            expansion.expandedActions.forEach(action => {
-                const service = this.getServiceFromAction(action);
-                analysis.servicesAffected.add(service);
-            });
+        expanded.forEach(action => {
+            const svc = action.split(':')[0];
+            analysis.servicesAffected.add(svc);
         });
-
         analysis.servicesAffected = Array.from(analysis.servicesAffected).sort();
 
         return analysis;
     }
 
-    /**
-     * Expand a single action pattern (Vue.js style logic)
-     */
-    expandPattern(actionPattern) {
+    buildExpansionDetail(pattern, isNotAction) {
         const expansion = {
-            originalPattern: actionPattern,
-            hasWildcard: actionPattern.includes('*'),
+            originalPattern: isNotAction ? `NOT:${pattern}` : pattern,
+            hasWildcard: pattern.includes('*'),
             expandedActions: [],
             expandedCount: 0,
             sampleActions: [],
-            isNotAction: actionPattern.startsWith('NOT:')
+            isNotAction
         };
 
-        // Handle NotAction by removing the NOT: prefix
-        let cleanPattern = expansion.isNotAction ? actionPattern.substring(4) : actionPattern;
-
-        if (expansion.hasWildcard) {
-            // Convert wildcard to regex (same as Vue.js app)
-            const pattern = cleanPattern.replace(/\*/g, '.*');
-            const regex = new RegExp(`^${pattern}$`, 'i');
-
-            // Find all matching actions
-            const matchedActions = this.allActions.filter(action => regex.test(action));
-            expansion.expandedActions = matchedActions;
-
-            // If no matches found, keep original pattern
-            if (matchedActions.length === 0) {
-                expansion.expandedActions = [cleanPattern];
-            }
+        if (isNotAction) {
+            const complement = this.expandNotActions([pattern]);
+            expansion.expandedActions = complement;
         } else {
-            // Exact match
-            expansion.expandedActions = [cleanPattern];
+            expansion.expandedActions = this.expandWildcard(pattern);
         }
 
         expansion.expandedCount = expansion.expandedActions.length;
         expansion.sampleActions = expansion.expandedActions.slice(0, 5);
-
         return expansion;
     }
 
-    /**
-     * Get service name from action string
-     */
     getServiceFromAction(action) {
         const [prefix] = action.split(':');
+        if (!this.awsData) return 'Unknown Service';
         for (const [serviceName, serviceData] of Object.entries(this.awsData.serviceMap)) {
             if (serviceData.StringPrefix === prefix) {
                 return serviceName;
             }
         }
-        return 'Unknown Service';
+        return prefix;
     }
 
     /**
-     * Get impact severity level
+     * Group actions by service prefix.
+     * Returns sorted array of { service, prefix, count, actions }.
      */
-    getImpactLevel(expansionRatio) {
-        if (expansionRatio >= 100) return 'critical';
-        if (expansionRatio >= 50) return 'high';
-        if (expansionRatio >= 10) return 'medium';
-        return 'low';
-    }
-
-    /**
-     * Get human-readable impact description
-     */
-    getImpactDescription(level) {
-        switch (level) {
-            case 'critical': return '🔴 Critical - Very broad permissions';
-            case 'high': return '🟠 High - Broad permissions';
-            case 'medium': return '🟡 Medium - Moderate permissions';
-            case 'low': return '🟢 Low - Specific permissions';
-            default: return '⚪ Unknown impact';
+    static groupByService(actions) {
+        const groups = {};
+        for (const action of actions) {
+            const prefix = action.split(':')[0];
+            if (!groups[prefix]) {
+                groups[prefix] = [];
+            }
+            groups[prefix].push(action);
         }
+        return Object.entries(groups)
+            .map(([prefix, acts]) => ({ prefix, count: acts.length, actions: acts.sort() }))
+            .sort((a, b) => b.count - a.count);
     }
 }
