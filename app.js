@@ -236,7 +236,18 @@ class App {
             if (identityInfo) identityInfo.style.display = 'none';
             
             const limitedNotice = document.getElementById('limited-permissions-notice');
-            if (limitedNotice) limitedNotice.style.display = 'none';
+            if (limitedNotice) {
+                limitedNotice.style.display = 'none';
+                limitedNotice.innerHTML = `
+                    <div class="notice-icon">⚠️</div>
+                    <div class="notice-content">
+                        <div class="notice-title">Limited Permissions Mode</div>
+                        <div class="notice-text">
+                            You don't have <code>iam:ListPolicies</code> permission. Showing policies attached to your user only.
+                            You can also manually enter a policy ARN below to analyze any policy you have access to.
+                        </div>
+                    </div>`;
+            }
             
             // Reset manual ARN form
             const manualArnForm = document.getElementById('manual-arn-form');
@@ -282,17 +293,22 @@ class App {
             const result = await awsHandler.listAllPolicies();
 
             if (!result.success) {
-                this.showError(`Failed to load policies: ${result.error}`);
                 loadingIndicator.style.display = 'none';
                 
-                // Even if we can't list policies, show the manual ARN section
+                // Show the manual ARN section prominently
                 if (manualArnSection) {
                     manualArnSection.style.display = 'block';
-                    // Auto-expand the manual ARN form
                     const form = document.getElementById('manual-arn-form');
                     const toggleBtn = document.getElementById('toggle-manual-arn');
                     if (form) form.style.display = 'flex';
                     if (toggleBtn) toggleBtn.textContent = 'Hide';
+                }
+
+                // Show diagnostics if available (from the user-policy fallback path)
+                if (result.diagnostics) {
+                    this.showPermissionsDiagnostics(result.diagnostics, result.userName);
+                } else {
+                    this.showError(`Failed to load policies: ${result.error}`);
                 }
                 return;
             }
@@ -322,6 +338,9 @@ class App {
             // Show limited permissions notice if applicable
             if (this.isLimitedMode && limitedNotice) {
                 limitedNotice.style.display = 'flex';
+                if (result.diagnostics) {
+                    this.renderDiagnosticsInNotice(result.diagnostics);
+                }
             }
 
             // Render policy list
@@ -675,6 +694,86 @@ class App {
             setTimeout(() => {
                 successElement.style.display = 'none';
             }, 5000);
+        }
+    }
+
+    /**
+     * Show a permissions diagnostics panel when policy discovery found 0 results.
+     * Explains what was tried and what the user needs to grant for self-scan.
+     */
+    showPermissionsDiagnostics(diagnostics, userName) {
+        const limitedNotice = document.getElementById('limited-permissions-notice');
+        if (!limitedNotice) return;
+
+        const allFailed = diagnostics.every(d => !d.ok);
+        const someDenied = diagnostics.some(d => !d.ok);
+        const rows = diagnostics.map(d => {
+            const icon = d.ok ? '✅' : '❌';
+            const detail = d.ok
+                ? (d.note || 'OK')
+                : d.error || 'Access denied';
+            return `<tr><td>${icon}</td><td><code>${d.api}</code></td><td class="caption">${detail}</td></tr>`;
+        }).join('');
+
+        const identityLabel = userName ? `user <strong>${userName}</strong>` : 'current identity';
+
+        const deniedApis = diagnostics.filter(d => !d.ok).map(d => d.api);
+        let hintHtml = '';
+        if (allFailed) {
+            hintHtml = `
+                <div class="notice-hint">
+                    <strong>To enable self-scan</strong>, grant at least one of these on your own user:<br>
+                    <code>iam:ListAttachedUserPolicies</code>, <code>iam:ListUserPolicies</code>, or <code>iam:ListGroupsForUser</code><br><br>
+                    You can still <strong>analyze any policy by ARN</strong> using the form below if you have <code>iam:GetPolicy</code> and <code>iam:GetPolicyVersion</code>.
+                </div>`;
+        } else if (someDenied) {
+            hintHtml = `
+                <div class="notice-hint">
+                    Some API calls succeeded but returned no policies. Your permissions likely come from a source that could not be listed
+                    (${deniedApis.map(a => `<code>${a}</code>`).join(', ')} denied).<br><br>
+                    <strong>To discover those policies</strong>, grant: ${deniedApis.map(a => `<code>${a}</code>`).join(', ')}<br><br>
+                    You can still <strong>analyze any policy by ARN</strong> using the form below if you have <code>iam:GetPolicy</code> and <code>iam:GetPolicyVersion</code>.
+                </div>`;
+        }
+
+        limitedNotice.innerHTML = `
+            <div class="notice-icon">⚠️</div>
+            <div class="notice-content">
+                <div class="notice-title">No Policies Discovered</div>
+                <div class="notice-text">
+                    Policy discovery for ${identityLabel} found no results. The following API calls were attempted:
+                    <table class="diagnostics-table">
+                        <thead><tr><th></th><th>API</th><th>Result</th></tr></thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                    ${hintHtml}
+                </div>
+            </div>`;
+        limitedNotice.style.display = 'flex';
+    }
+
+    /**
+     * Render diagnostics summary inside the limited-permissions notice
+     * (used when some APIs succeeded and policies were found).
+     */
+    renderDiagnosticsInNotice(diagnostics) {
+        const detailsEl = document.getElementById('diagnostics-details');
+        if (!detailsEl) {
+            // Inject a collapsible details section into the existing notice
+            const noticeText = document.querySelector('#limited-permissions-notice .notice-text');
+            if (!noticeText) return;
+
+            const failedApis = diagnostics.filter(d => !d.ok);
+            if (failedApis.length === 0) return;
+
+            const failedList = failedApis.map(d => `<code>${d.api}</code>`).join(', ');
+            const details = document.createElement('details');
+            details.id = 'diagnostics-details';
+            details.innerHTML = `<summary>Some API calls failed (${failedApis.length})</summary>
+                <p class="caption" style="margin-top:var(--spacing-xs)">
+                    Could not call: ${failedList}. Policies from those sources may be missing.
+                </p>`;
+            noticeText.appendChild(details);
         }
     }
 

@@ -178,15 +178,23 @@ class AWSHandler {
     }
 
     /**
-     * Fallback: List policies attached to the current user
-     * Requires: iam:ListAttachedUserPolicies (for managed policies)
-     *           iam:ListUserPolicies (for inline policies)
+     * Fallback: Discover policies for the current user through multiple API paths.
+     * Tries user-level, then group-level discovery. Each API call is independent
+     * so partial failures don't block other discovery paths.
+     *
+     * Returns diagnostics about which APIs succeeded/failed so the UI can guide
+     * the user toward the minimum permissions needed for self-scan.
      */
     async listUserAttachedPolicies() {
         if (!this.currentIdentity || !this.currentIdentity.userName) {
             return {
                 success: false,
-                error: 'Cannot list user policies: not logged in as an IAM user'
+                error: 'Cannot list user policies: not logged in as an IAM user',
+                diagnostics: [{
+                    api: 'sts:GetCallerIdentity',
+                    ok: true,
+                    note: 'Identity resolved, but it is not an IAM user (may be a role or root). Self-scan requires an IAM user identity.'
+                }]
             };
         }
 
@@ -195,10 +203,12 @@ class AWSHandler {
             awsManaged: [],
             customerManaged: [],
             inlinePolicies: [],
-            attachedPolicies: []
+            attachedPolicies: [],
+            groupPolicies: []
         };
+        const diagnostics = [];
 
-        // Try to get attached managed policies
+        // ── 1. Attached managed policies on the user ────────────────────
         try {
             let marker = null;
             do {
@@ -212,15 +222,12 @@ class AWSHandler {
                 
                 if (response.AttachedPolicies) {
                     for (const policy of response.AttachedPolicies) {
-                        // Fetch full policy details
                         const detailResult = await this.getPolicyDetails(policy.PolicyArn);
                         if (detailResult.success) {
                             const fullPolicy = {
                                 ...detailResult.data,
                                 isAttachedToUser: true
                             };
-                            
-                            // Categorize as AWS or Customer managed
                             if (policy.PolicyArn.includes(':aws:policy/')) {
                                 result.awsManaged.push(fullPolicy);
                             } else {
@@ -228,7 +235,6 @@ class AWSHandler {
                             }
                             result.attachedPolicies.push(fullPolicy);
                         } else {
-                            // If we can't get details, use basic info
                             const basicPolicy = {
                                 PolicyName: policy.PolicyName,
                                 Arn: policy.PolicyArn,
@@ -246,11 +252,13 @@ class AWSHandler {
                 
                 marker = response.IsTruncated ? response.Marker : null;
             } while (marker);
+            diagnostics.push({ api: 'iam:ListAttachedUserPolicies', ok: true, note: `${result.attachedPolicies.length} attached managed policy(ies)` });
         } catch (error) {
             console.warn('Could not list attached user policies:', error.message);
+            diagnostics.push({ api: 'iam:ListAttachedUserPolicies', ok: false, error: error.message });
         }
 
-        // Try to get inline policies
+        // ── 2. Inline policies on the user ──────────────────────────────
         try {
             const command = new ListUserPoliciesCommand({
                 UserName: userName,
@@ -261,7 +269,6 @@ class AWSHandler {
             
             if (response.PolicyNames) {
                 for (const policyName of response.PolicyNames) {
-                    // Try to get the inline policy document
                     try {
                         const getPolicyCmd = new GetUserPolicyCommand({
                             UserName: userName,
@@ -281,7 +288,6 @@ class AWSHandler {
                             userName: userName
                         });
                     } catch (err) {
-                        // Add without document if we can't fetch it
                         result.inlinePolicies.push({
                             PolicyName: policyName,
                             isInline: true,
@@ -290,8 +296,106 @@ class AWSHandler {
                     }
                 }
             }
+            const inlineCount = response.PolicyNames ? response.PolicyNames.length : 0;
+            diagnostics.push({ api: 'iam:ListUserPolicies', ok: true, note: `${inlineCount} inline policy(ies)` });
         } catch (error) {
             console.warn('Could not list inline user policies:', error.message);
+            diagnostics.push({ api: 'iam:ListUserPolicies', ok: false, error: error.message });
+        }
+
+        // ── 3. Group memberships → group-level policies ─────────────────
+        let userGroups = [];
+        try {
+            let marker = null;
+            do {
+                const command = new ListGroupsForUserCommand({
+                    UserName: userName,
+                    MaxItems: 100,
+                    ...(marker && { Marker: marker })
+                });
+                const response = await this.iamClient.send(command);
+                if (response.Groups) {
+                    userGroups = userGroups.concat(response.Groups);
+                }
+                marker = response.IsTruncated ? response.Marker : null;
+            } while (marker);
+            diagnostics.push({ api: 'iam:ListGroupsForUser', ok: true, note: `${userGroups.length} group(s)` });
+        } catch (error) {
+            console.warn('Could not list groups for user:', error.message);
+            diagnostics.push({ api: 'iam:ListGroupsForUser', ok: false, error: error.message });
+        }
+
+        for (const group of userGroups) {
+            // 3a. Attached managed policies on this group
+            try {
+                let marker = null;
+                do {
+                    const command = new ListAttachedGroupPoliciesCommand({
+                        GroupName: group.GroupName,
+                        MaxItems: 100,
+                        ...(marker && { Marker: marker })
+                    });
+                    const response = await this.iamClient.send(command);
+                    if (response.AttachedPolicies) {
+                        for (const policy of response.AttachedPolicies) {
+                            const detailResult = await this.getPolicyDetails(policy.PolicyArn);
+                            const fullPolicy = detailResult.success
+                                ? { ...detailResult.data, isGroupPolicy: true, groupName: group.GroupName }
+                                : { PolicyName: policy.PolicyName, Arn: policy.PolicyArn, isGroupPolicy: true, groupName: group.GroupName };
+
+                            if (policy.PolicyArn.includes(':aws:policy/')) {
+                                result.awsManaged.push(fullPolicy);
+                            } else {
+                                result.customerManaged.push(fullPolicy);
+                            }
+                            result.groupPolicies.push(fullPolicy);
+                        }
+                    }
+                    marker = response.IsTruncated ? response.Marker : null;
+                } while (marker);
+            } catch (error) {
+                console.warn(`Could not list attached group policies for ${group.GroupName}:`, error.message);
+            }
+
+            // 3b. Inline policies on this group
+            try {
+                const listCmd = new ListGroupPoliciesCommand({
+                    GroupName: group.GroupName,
+                    MaxItems: 100
+                });
+                const listResponse = await this.iamClient.send(listCmd);
+                if (listResponse.PolicyNames) {
+                    for (const policyName of listResponse.PolicyNames) {
+                        try {
+                            const getCmd = new GetGroupPolicyCommand({
+                                GroupName: group.GroupName,
+                                PolicyName: policyName
+                            });
+                            const policyResponse = await this.iamClient.send(getCmd);
+                            let policyDocument = policyResponse.PolicyDocument;
+                            if (typeof policyDocument === 'string') {
+                                policyDocument = JSON.parse(decodeURIComponent(policyDocument));
+                            }
+                            result.inlinePolicies.push({
+                                PolicyName: policyName,
+                                PolicyDocument: policyDocument,
+                                isInline: true,
+                                isGroupPolicy: true,
+                                groupName: group.GroupName
+                            });
+                        } catch (err) {
+                            result.inlinePolicies.push({
+                                PolicyName: policyName,
+                                isInline: true,
+                                isGroupPolicy: true,
+                                groupName: group.GroupName
+                            });
+                        }
+                    }
+                }
+            } catch (error) {
+                console.warn(`Could not list inline group policies for ${group.GroupName}:`, error.message);
+            }
         }
 
         const totalPolicies = result.awsManaged.length + result.customerManaged.length + result.inlinePolicies.length;
@@ -299,7 +403,9 @@ class AWSHandler {
         if (totalPolicies === 0) {
             return {
                 success: false,
-                error: 'No policies found or insufficient permissions to list user policies'
+                error: 'Could not discover any policies. See details below for which API calls were attempted.',
+                diagnostics,
+                userName
             };
         }
 
@@ -307,7 +413,8 @@ class AWSHandler {
             success: true,
             data: result,
             mode: 'limited',
-            message: `Found ${totalPolicies} policies attached to user ${userName}`
+            diagnostics,
+            message: `Found ${totalPolicies} policies for user ${userName}`
         };
     }
 

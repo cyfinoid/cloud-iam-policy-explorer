@@ -1508,6 +1508,46 @@ body {
     font-size: var(--font-caption);
 }
 
+.limited-permissions-notice .notice-hint {
+    margin-top: var(--spacing-sm);
+    padding: var(--spacing-sm);
+    background-color: rgba(80, 200, 120, 0.08);
+    border-radius: 6px;
+    line-height: 1.6;
+}
+
+.diagnostics-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: var(--spacing-sm);
+    font-size: var(--font-caption);
+}
+
+.diagnostics-table th,
+.diagnostics-table td {
+    text-align: left;
+    padding: 4px 8px;
+    border-bottom: 1px solid var(--bg-tertiary);
+}
+
+.diagnostics-table th {
+    color: var(--text-tertiary);
+    font-weight: 700;
+}
+
+.diagnostics-table td:first-child {
+    width: 28px;
+    text-align: center;
+}
+
+.diagnostics-table code {
+    background-color: var(--bg-primary);
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: var(--color-yellow);
+    font-family: 'Courier New', monospace;
+}
+
 /* Identity Info Display */
 .identity-info {
     display: flex;

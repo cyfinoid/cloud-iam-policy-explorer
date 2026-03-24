@@ -1,6 +1,7 @@
-1.5
+1.6
 
 Version History:
+- 1.6: Graceful degradation for least-privilege users — group policy discovery, per-API diagnostics, and manual ARN entry when listing APIs are denied
 - 1.5: Enhanced expansion analysis (bigorange-style wildcard expansion, NotAction complement, per-resource effective permissions), expanded shadow admin detection to 66 privilege escalation paths (pathfinding.cloud catalog)
 - 1.2: Official release with GPL v3 license
 - 1.1.1: Improved diff styling (removed strikethrough, added +/− indicators, better readability)
